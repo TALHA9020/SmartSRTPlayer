@@ -1,4 +1,4 @@
-package com.smart.whiteboard
+package com.smart.srtplayer // نئی آئی ڈی کے مطابق پیکج نام
 
 import android.content.Context
 import android.content.Intent
@@ -35,7 +35,6 @@ data class SubtitleItem(val start: Long, val end: Long, val text: String)
 
 class MainActivity : ComponentActivity() {
     
-    // سروس کے ساتھ ڈیٹا شیئر کرنے کے لیے سٹیٹک آبجیکٹ
     companion object {
         var fullSubtitleList = listOf<SubtitleItem>()
     }
