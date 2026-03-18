@@ -17,8 +17,22 @@ class SubtitleService : Service() {
     private var startTime: Long = 0
     private var isPlaying = false
     private var elapsedAtPause: Long = 0
-    private var timeOffset: Long = 0 // ٹائم آف سیٹ کے لیے
-    private var isBgHidden = false // بیک گراؤنڈ سٹیٹس کے لیے
+    private var timeOffset: Long = 0
+    private var isBgHidden = false
+    
+    // فاسٹ فارورڈ/بیک ورڈ کے لیے
+    private var isSeeking = false
+    private var seekSpeed = 1000L // شروع میں 1 سیکنڈ
+    private val seekRunnable = object : Runnable {
+        override fun run() {
+            if (isSeeking) {
+                startTime -= seekDirection * seekSpeed
+                seekSpeed += 500 // جتنی دیر پریس رکھیں گے سپیڈ بڑھے گی
+                handler.postDelayed(this, 100)
+            }
+        }
+    }
+    private var seekDirection = 1 // 1 for forward, -1 for backward
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -38,12 +52,17 @@ class SubtitleService : Service() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
-            y = 150
+        ).apply { gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP; y = 150 }
+
+        val controls = floatingView!!.findViewById<View>(R.id.controls_layout)
+        val subtitleText = floatingView!!.findViewById<TextView>(R.id.subtitle_text)
+
+        // --- ٹیپ ٹو ٹوگل بٹنز ---
+        subtitleText.setOnClickListener {
+            controls.visibility = if (controls.visibility == View.VISIBLE) View.GONE else View.VISIBLE
         }
 
-        // ٹچ اور ڈریگ لاجک
+        // --- ڈریگنگ لاجک ---
         floatingView?.setOnTouchListener(object : View.OnTouchListener {
             private var initialX = 0; private var initialY = 0
             private var initialTouchX = 0f; private var initialTouchY = 0f
@@ -52,8 +71,6 @@ class SubtitleService : Service() {
                     MotionEvent.ACTION_DOWN -> {
                         initialX = params.x; initialY = params.y
                         initialTouchX = event.rawX; initialTouchY = event.rawY
-                        // کنٹرولز دکھائیں
-                        floatingView?.findViewById<View>(R.id.controls_layout)?.visibility = View.VISIBLE
                         return true
                     }
                     MotionEvent.ACTION_MOVE -> {
@@ -62,35 +79,42 @@ class SubtitleService : Service() {
                         windowManager.updateViewLayout(floatingView, params)
                         return true
                     }
-                    MotionEvent.ACTION_OUTSIDE -> {
-                        floatingView?.findViewById<View>(R.id.controls_layout)?.visibility = View.GONE
-                        return true
-                    }
                 }
                 return false
             }
         })
 
-        // بٹن ایکشنز
+        // --- فارورڈ / بیک ورڈ بٹنز (Long Press) ---
+        setupSeekButton(R.id.btn_forward, 1)
+        setupSeekButton(R.id.btn_backward, -1)
+
+        // --- باقی بٹنز ---
         floatingView?.apply {
             findViewById<ImageButton>(R.id.btn_play_pause).setOnClickListener { togglePlay(it as ImageButton) }
             findViewById<ImageButton>(R.id.btn_close).setOnClickListener { stopSelf() }
-            findViewById<ImageButton>(R.id.btn_pick_srt).setOnClickListener { openPicker("srt") }
-            findViewById<ImageButton>(R.id.btn_pick_font).setOnClickListener { openPicker("font") }
-            
-            // ٹائم آف سیٹ بٹنز
+            findViewById<ImageButton>(R.id.btn_add_srt).setOnClickListener { openPicker("srt") }
+            findViewById<ImageButton>(R.id.btn_toggle_bg).setOnClickListener { isBgHidden = !isBgHidden; updateUI() }
             findViewById<Button>(R.id.btn_offset_plus).setOnClickListener { timeOffset += 500 }
             findViewById<Button>(R.id.btn_offset_minus).setOnClickListener { timeOffset -= 500 }
-            
-            // بیک گراؤنڈ ٹوگل
-            findViewById<ImageButton>(R.id.btn_toggle_bg).setOnClickListener {
-                isBgHidden = !isBgHidden
-                updateUI() // ری فریش کریں
-            }
         }
 
         windowManager.addView(floatingView, params)
         updateUI()
+    }
+
+    private fun setupSeekButton(id: Int, direction: Int) {
+        floatingView?.findViewById<ImageButton>(id)?.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    isSeeking = true; seekDirection = direction; seekSpeed = 1000L
+                    handler.post(seekRunnable); true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    isSeeking = false; handler.removeCallbacks(seekRunnable); true
+                }
+                else -> false
+            }
+        }
     }
 
     private fun togglePlay(btn: ImageButton) {
@@ -109,24 +133,27 @@ class SubtitleService : Service() {
         handler.post(object : Runnable {
             override fun run() {
                 if (!isPlaying) return
-                // اصل وقت + یوزر کا دیا ہوا آف سیٹ
                 val elapsed = (System.currentTimeMillis() - startTime) + timeOffset
-                
                 val currentSub = MainActivity.fullSubtitleList.find { it.start <= elapsed && it.end >= elapsed }
                 
                 val txt = floatingView?.findViewById<TextView>(R.id.subtitle_text)
-                val container = floatingView?.findViewById<View>(R.id.subtitle_container)
+                val timerTxt = floatingView?.findViewById<TextView>(R.id.timer_display)
                 
-                if (currentSub != null) {
-                    txt?.text = currentSub.text
-                    container?.visibility = View.VISIBLE
-                } else {
-                    txt?.text = ""
-                    container?.visibility = View.GONE // جب ٹیکسٹ نہیں تو سب کچھ چھپ جائے (Fold Mode)
-                }
+                timerTxt?.text = formatTime(elapsed)
+                txt?.text = currentSub?.text ?: ""
+                floatingView?.findViewById<View>(R.id.subtitle_container)?.visibility = 
+                    if (currentSub != null) View.VISIBLE else View.GONE
+                
                 handler.postDelayed(this, 100)
             }
         })
+    }
+
+    private fun formatTime(ms: Long): String {
+        val s = (ms / 1000) % 60
+        val m = (ms / 60000) % 60
+        val h = (ms / 3600000)
+        return String.format("%02d:%02d:%02d", h, m, s)
     }
 
     private fun updateUI() {
@@ -136,54 +163,31 @@ class SubtitleService : Service() {
         
         val bgColor = if (isBgHidden) Color.TRANSPARENT else prefs.getInt("bg_color", Color.BLACK)
         val opacity = if (isBgHidden) 0 else (prefs.getFloat("opacity", 0.8f) * 255).toInt()
-        val textColor = prefs.getInt("text_color", Color.WHITE)
-        val textSize = prefs.getFloat("text_size", 20f)
-
+        
         container?.setBackgroundColor(Color.argb(opacity, Color.red(bgColor), Color.green(bgColor), Color.blue(bgColor)))
-        txt?.setTextColor(textColor)
-        txt?.textSize = textSize
-
+        txt?.setTextColor(prefs.getInt("text_color", Color.WHITE))
+        txt?.textSize = prefs.getFloat("text_size", 20f)
+        
         prefs.getString("last_font_path", null)?.let {
             if (File(it).exists()) txt?.typeface = Typeface.createFromFile(it)
         }
     }
 
     private fun openPicker(type: String) {
-        val intent = Intent(this, FilePickerActivity::class.java).apply {
-            putExtra("type", type)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
+        val intent = Intent(this, FilePickerActivity::class.java).putExtra("type", type).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         startActivity(intent)
-        floatingView?.findViewById<View>(R.id.controls_layout)?.visibility = View.GONE
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        updateUI()
         if (intent?.getBooleanExtra("reset", false) == true) {
-            elapsedAtPause = 0
-            timeOffset = 0 // نئی فائل پر آف سیٹ بھی ری سیٹ
-            isPlaying = false
+            elapsedAtPause = 0; timeOffset = 0; isPlaying = false
             floatingView?.findViewById<ImageButton>(R.id.btn_play_pause)?.setImageResource(android.R.drawable.ic_media_play)
         }
-        return START_STICKY
+        updateUI(); return START_STICKY
     }
 
-    private fun createNotification(): Notification {
-        val channelId = "srt_player_channel"
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(channelId, "Subtitle Player", NotificationManager.IMPORTANCE_LOW)
-            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
-        }
-        return NotificationCompat.Builder(this, channelId)
-            .setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentTitle("Smart SRT Player Active")
-            .setOngoing(true)
-            .build()
-    }
+    private fun createNotification() = NotificationCompat.Builder(this, "srt_player_channel")
+        .setSmallIcon(android.R.drawable.ic_media_play).setContentTitle("Smart SRT Player").build()
 
-    override fun onDestroy() {
-        super.onDestroy()
-        isPlaying = false
-        floatingView?.let { windowManager.removeView(it) }
-    }
+    override fun onDestroy() { super.onDestroy(); floatingView?.let { windowManager.removeView(it) } }
 }
