@@ -13,9 +13,12 @@ class SubtitleService : Service() {
     private lateinit var windowManager: WindowManager
     private var floatingView: View? = null
     private val handler = Handler(Looper.getMainLooper())
+    
     private var startTime: Long = 0
     private var isPlaying = false
     private var elapsedAtPause: Long = 0
+    private var timeOffset: Long = 0 // ٹائم آف سیٹ کے لیے
+    private var isBgHidden = false // بیک گراؤنڈ سٹیٹس کے لیے
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -40,7 +43,7 @@ class SubtitleService : Service() {
             y = 150
         }
 
-        // ڈریگنگ اور کنٹرولز دکھانے کی لاجک
+        // ٹچ اور ڈریگ لاجک
         floatingView?.setOnTouchListener(object : View.OnTouchListener {
             private var initialX = 0; private var initialY = 0
             private var initialTouchX = 0f; private var initialTouchY = 0f
@@ -49,7 +52,7 @@ class SubtitleService : Service() {
                     MotionEvent.ACTION_DOWN -> {
                         initialX = params.x; initialY = params.y
                         initialTouchX = event.rawX; initialTouchY = event.rawY
-                        // ٹچ کرنے پر بٹنز دکھائیں
+                        // کنٹرولز دکھائیں
                         floatingView?.findViewById<View>(R.id.controls_layout)?.visibility = View.VISIBLE
                         return true
                     }
@@ -59,16 +62,32 @@ class SubtitleService : Service() {
                         windowManager.updateViewLayout(floatingView, params)
                         return true
                     }
+                    MotionEvent.ACTION_OUTSIDE -> {
+                        floatingView?.findViewById<View>(R.id.controls_layout)?.visibility = View.GONE
+                        return true
+                    }
                 }
                 return false
             }
         })
 
         // بٹن ایکشنز
-        floatingView?.findViewById<ImageButton>(R.id.btn_play_pause)?.setOnClickListener { togglePlay(it as ImageButton) }
-        floatingView?.findViewById<ImageButton>(R.id.btn_close)?.setOnClickListener { stopSelf() }
-        floatingView?.findViewById<ImageButton>(R.id.btn_pick_srt)?.setOnClickListener { openPicker("srt") }
-        floatingView?.findViewById<ImageButton>(R.id.btn_pick_font)?.setOnClickListener { openPicker("font") }
+        floatingView?.apply {
+            findViewById<ImageButton>(R.id.btn_play_pause).setOnClickListener { togglePlay(it as ImageButton) }
+            findViewById<ImageButton>(R.id.btn_close).setOnClickListener { stopSelf() }
+            findViewById<ImageButton>(R.id.btn_pick_srt).setOnClickListener { openPicker("srt") }
+            findViewById<ImageButton>(R.id.btn_pick_font).setOnClickListener { openPicker("font") }
+            
+            // ٹائم آف سیٹ بٹنز
+            findViewById<Button>(R.id.btn_offset_plus).setOnClickListener { timeOffset += 500 }
+            findViewById<Button>(R.id.btn_offset_minus).setOnClickListener { timeOffset -= 500 }
+            
+            // بیک گراؤنڈ ٹوگل
+            findViewById<ImageButton>(R.id.btn_toggle_bg).setOnClickListener {
+                isBgHidden = !isBgHidden
+                updateUI() // ری فریش کریں
+            }
+        }
 
         windowManager.addView(floatingView, params)
         updateUI()
@@ -90,7 +109,9 @@ class SubtitleService : Service() {
         handler.post(object : Runnable {
             override fun run() {
                 if (!isPlaying) return
-                val elapsed = System.currentTimeMillis() - startTime
+                // اصل وقت + یوزر کا دیا ہوا آف سیٹ
+                val elapsed = (System.currentTimeMillis() - startTime) + timeOffset
+                
                 val currentSub = MainActivity.fullSubtitleList.find { it.start <= elapsed && it.end >= elapsed }
                 
                 val txt = floatingView?.findViewById<TextView>(R.id.subtitle_text)
@@ -98,10 +119,10 @@ class SubtitleService : Service() {
                 
                 if (currentSub != null) {
                     txt?.text = currentSub.text
-                    container?.visibility = View.VISIBLE // ٹیکسٹ ہے تو بیک گراؤنڈ دکھاؤ
+                    container?.visibility = View.VISIBLE
                 } else {
                     txt?.text = ""
-                    container?.visibility = View.GONE // ٹیکسٹ نہیں تو سب غائب
+                    container?.visibility = View.GONE // جب ٹیکسٹ نہیں تو سب کچھ چھپ جائے (Fold Mode)
                 }
                 handler.postDelayed(this, 100)
             }
@@ -113,8 +134,8 @@ class SubtitleService : Service() {
         val container = floatingView?.findViewById<View>(R.id.subtitle_container)
         val txt = floatingView?.findViewById<TextView>(R.id.subtitle_text)
         
-        val bgColor = prefs.getInt("bg_color", Color.BLACK)
-        val opacity = (prefs.getFloat("opacity", 0.8f) * 255).toInt()
+        val bgColor = if (isBgHidden) Color.TRANSPARENT else prefs.getInt("bg_color", Color.BLACK)
+        val opacity = if (isBgHidden) 0 else (prefs.getFloat("opacity", 0.8f) * 255).toInt()
         val textColor = prefs.getInt("text_color", Color.WHITE)
         val textSize = prefs.getFloat("text_size", 20f)
 
@@ -133,7 +154,6 @@ class SubtitleService : Service() {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         startActivity(intent)
-        // پکر کھلتے ہی کنٹرولز چھپا دیں
         floatingView?.findViewById<View>(R.id.controls_layout)?.visibility = View.GONE
     }
 
@@ -141,10 +161,9 @@ class SubtitleService : Service() {
         updateUI()
         if (intent?.getBooleanExtra("reset", false) == true) {
             elapsedAtPause = 0
+            timeOffset = 0 // نئی فائل پر آف سیٹ بھی ری سیٹ
             isPlaying = false
             floatingView?.findViewById<ImageButton>(R.id.btn_play_pause)?.setImageResource(android.R.drawable.ic_media_play)
-            floatingView?.findViewById<TextView>(R.id.subtitle_text)?.text = ""
-            floatingView?.findViewById<View>(R.id.subtitle_container)?.visibility = View.GONE
         }
         return START_STICKY
     }
@@ -158,6 +177,7 @@ class SubtitleService : Service() {
         return NotificationCompat.Builder(this, channelId)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle("Smart SRT Player Active")
+            .setOngoing(true)
             .build()
     }
 
