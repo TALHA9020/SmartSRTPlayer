@@ -69,10 +69,11 @@ fun SRTPlayerMainScreen() {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences(MainActivity.PREFS_NAME, Context.MODE_PRIVATE)
     
-    var srtPreview by remember { mutableStateOf(if (MainActivity.fullSubtitleList.isNotEmpty()) "فائل پہلے سے موجود ہے" else "کوئی فائل منتخب نہیں کی گئی") }
+    var srtPreview by remember { mutableStateOf(if (MainActivity.fullSubtitleList.isNotEmpty()) "SRT فائل لوڈڈ ہے" else "کوئی فائل منتخب نہیں کی گئی") }
     var fontPath by remember { mutableStateOf(prefs.getString("last_font_path", null)) }
     
-    var windowSize by remember { mutableStateOf(prefs.getFloat("window_size", 1.0f)) }
+    var textSize by remember { mutableStateOf(prefs.getFloat("text_size", 1.0f)) }
+    var timerSize by remember { mutableStateOf(prefs.getFloat("timer_size", 0.8f)) }
     var textColor by remember { mutableStateOf(Color(prefs.getInt("text_color", Color.White.toArgb()))) }
     var bgColor by remember { mutableStateOf(Color(prefs.getInt("bg_color", Color.Black.toArgb()))) }
     var opacity by remember { mutableStateOf(prefs.getFloat("opacity", 0.8f)) }
@@ -81,12 +82,10 @@ fun SRTPlayerMainScreen() {
         uri?.let {
             val rawText = readTextFromUri(context, it)
             MainActivity.fullSubtitleList = parseSrt(rawText)
-            // فائل کو انٹرنل اسٹوریج میں سیو کریں تاکہ دوبارہ کھل سکے
             val file = File(context.filesDir, "last_subtitle.srt")
             file.writeText(rawText)
-            // جب نئی فائل آئے تو ٹائم زیرو کر دیں
-            prefs.edit().putInt("last_index", 0).apply()
-            srtPreview = if (MainActivity.fullSubtitleList.isNotEmpty()) "فائل لوڈ ہو گئی!" else "فائل غلط ہے"
+            prefs.edit().putInt("last_index", 0).putLong("last_time_ms", 0L).apply()
+            srtPreview = if (MainActivity.fullSubtitleList.isNotEmpty()) "فائل کامیابی سے لوڈ ہوگئی" else "فائل غلط ہے"
         }
     }
 
@@ -95,13 +94,14 @@ fun SRTPlayerMainScreen() {
             val file = copyFileToInternalStorage(context, it, "my_font.ttf")
             fontPath = file.absolutePath
             prefs.edit().putString("last_font_path", fontPath).apply()
-            Toast.makeText(context, "فونٹ محفوظ ہو گیا!", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "فونٹ محفوظ ہوگیا", Toast.LENGTH_SHORT).show()
         }
     }
 
     fun saveSettings() {
         prefs.edit().apply {
-            putFloat("window_size", windowSize)
+            putFloat("text_size", textSize)
+            putFloat("timer_size", timerSize)
             putInt("text_color", textColor.toArgb())
             putInt("bg_color", bgColor.toArgb())
             putFloat("opacity", opacity)
@@ -112,14 +112,16 @@ fun SRTPlayerMainScreen() {
     Column(modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally) {
         
-        Text("Smart SRT Player", fontSize = 28.sp, color = Color(0xFFFFD700), modifier = Modifier.padding(20.dp))
+        Text("Smart SRT Player", fontSize = 28.sp, color = Color(0xFFFFD700), modifier = Modifier.padding(10.dp))
 
         val previewFont = if (fontPath != null) FontFamily(Font(File(fontPath!!))) else FontFamily.Default
-        Box(modifier = Modifier.fillMaxWidth().height(120.dp)
-            .background(bgColor.copy(alpha = opacity), RoundedCornerShape(12.dp))
-            .padding(10.dp),
+        Box(modifier = Modifier.fillMaxWidth().height(110.dp)
+            .background(bgColor.copy(alpha = opacity), RoundedCornerShape(12.dp)),
             contentAlignment = Alignment.Center) {
-            Text(text = srtPreview, color = textColor, fontSize = (20 * windowSize).sp, fontFamily = previewFont)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("00:45", color = textColor.copy(alpha = 0.6f), fontSize = (18 * timerSize).sp, fontFamily = previewFont)
+                Text(text = srtPreview, color = textColor, fontSize = (20 * textSize).sp, fontFamily = previewFont)
+            }
         }
 
         Spacer(modifier = Modifier.height(20.dp))
@@ -130,13 +132,14 @@ fun SRTPlayerMainScreen() {
             Button(onClick = { fontLauncher.launch("*/*") }, modifier = Modifier.weight(1f)) { Text("2. Select Font") }
         }
 
-        Spacer(modifier = Modifier.height(25.dp))
-        HorizontalDivider(color = Color.Gray, thickness = 1.dp)
+        Spacer(modifier = Modifier.height(20.dp))
+        HorizontalDivider(color = Color.Gray, thickness = 0.5.dp)
         Spacer(modifier = Modifier.height(15.dp))
 
-        Text("Player Settings", fontSize = 20.sp, color = Color.White, modifier = Modifier.align(Alignment.Start))
+        Text("Player Customization", fontSize = 18.sp, color = Color.White, modifier = Modifier.align(Alignment.Start))
         
-        SettingSlider(label = "Window Size", value = windowSize, onValueChange = { windowSize = it; saveSettings() }, range = 0.5f..1.5f)
+        SettingSlider(label = "Subtitle Text Size", value = textSize, onValueChange = { textSize = it; saveSettings() }, range = 0.5f..2.0f)
+        SettingSlider(label = "Timer Clock Size", value = timerSize, onValueChange = { timerSize = it; saveSettings() }, range = 0.4f..1.5f)
         SettingSlider(label = "Background Opacity", value = opacity, onValueChange = { opacity = it; saveSettings() }, range = 0.0f..1.0f)
 
         ColorPickerRow(label = "Text Color", selectedColor = textColor, onColorSelected = { textColor = it; saveSettings() },
@@ -166,9 +169,9 @@ fun SRTPlayerMainScreen() {
 
 @Composable
 fun SettingSlider(label: String, value: Float, onValueChange: (Float) -> Unit, range: ClosedFloatingPointRange<Float>) {
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(label, color = Color.LightGray)
+            Text(label, color = Color.LightGray, fontSize = 14.sp)
             Text("%.1f".format(value), color = Color.White)
         }
         Slider(value = value, onValueChange = onValueChange, valueRange = range,
@@ -178,12 +181,12 @@ fun SettingSlider(label: String, value: Float, onValueChange: (Float) -> Unit, r
 
 @Composable
 fun ColorPickerRow(label: String, selectedColor: Color, onColorSelected: (Color) -> Unit, colors: List<Color>) {
-    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, color = Color.LightGray)
+        Text(label, color = Color.LightGray, fontSize = 14.sp)
         Row {
             colors.forEach { color ->
-                Box(modifier = Modifier.size(35.dp).padding(4.dp)
+                Box(modifier = Modifier.size(32.dp).padding(4.dp)
                     .background(color, CircleShape)
                     .clickable { onColorSelected(color) }
                     .then(if (color == selectedColor) Modifier.background(Color.White.copy(0.3f), CircleShape) else Modifier))
@@ -211,17 +214,16 @@ fun parseSrt(content: String): List<SubtitleItem> {
     for (block in blocks) {
         val lines = block.trim().lines()
         if (lines.size >= 2) {
-            val timeLine = if (lines[0].contains("-->")) lines[0] else if (lines.size > 1 && lines[1].contains("-->")) lines[1] else null
-            timeLine?.let {
-                val match = timeRegex.find(it)
-                if (match != null) {
-                    val textLines = if (lines[0].contains("-->")) lines.drop(1) else lines.drop(2)
-                    list.add(SubtitleItem(
-                        parseTimeToMs(match.groupValues[1]),
-                        parseTimeToMs(match.groupValues[2]),
-                        textLines.joinToString("\n")
-                    ))
-                }
+            val timeLine = lines.find { it.contains("-->") } ?: continue
+            val match = timeRegex.find(timeLine)
+            if (match != null) {
+                val timeIdx = lines.indexOf(timeLine)
+                val textLines = lines.drop(timeIdx + 1)
+                list.add(SubtitleItem(
+                    parseTimeToMs(match.groupValues[1]),
+                    parseTimeToMs(match.groupValues[2]),
+                    textLines.joinToString("\n")
+                ))
             }
         }
     }
