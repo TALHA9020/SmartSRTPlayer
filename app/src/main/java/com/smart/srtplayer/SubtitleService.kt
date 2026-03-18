@@ -1,9 +1,9 @@
 package com.smart.srtplayer
 
 import android.app.*
-import android.content.Context
 import android.content.Intent
 import android.graphics.PixelFormat
+import android.graphics.Typeface
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -11,10 +11,9 @@ import android.os.Looper
 import android.view.*
 import android.widget.FrameLayout
 import android.widget.TextView
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.app.NotificationCompat
-import com.smart.srtplayer.R // اب یہ امپورٹ کام کرے گا کیونکہ فائل موجود ہے
+import java.io.File
 
 class SubtitleService : Service() {
 
@@ -30,7 +29,7 @@ class SubtitleService : Service() {
         super.onCreate()
         createNotificationChannel()
         val notification = NotificationCompat.Builder(this, "subtitle_service")
-            .setContentTitle("Smart SRT")
+            .setContentTitle("Smart SRT Active")
             .setSmallIcon(android.R.drawable.ic_media_play)
             .build()
         startForeground(1, notification)
@@ -39,50 +38,60 @@ class SubtitleService : Service() {
 
     private fun setupFloatingWindow() {
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        val inflater = getSystemService(LAYOUT_INFLATER_SERVICE) as LayoutInflater
+        val inflater = LayoutInflater.from(this)
         
         try {
-            // اب R.layout.overlay_layout بالکل صحیح کام کرے گا
             floatingView = inflater.inflate(R.layout.overlay_layout, null)
 
             val params = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT,
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT
             )
             params.gravity = Gravity.TOP
             windowManager.addView(floatingView, params)
+            
             updateUIFromPrefs()
             startSubtitleTimer()
         } catch (e: Exception) {
             e.printStackTrace()
-            stopSelf()
         }
     }
 
     private fun updateUIFromPrefs() {
-        val prefs = getSharedPreferences("SmartPrefs", MODE_PRIVATE)
+        val prefs = getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE)
         floatingView?.let { view ->
             val container = view.findViewById<FrameLayout>(R.id.subtitle_container)
             val textSub = view.findViewById<TextView>(R.id.subtitle_text)
             val textTimer = view.findViewById<TextView>(R.id.timer_text)
 
+            // فونٹس اور سیٹنگز لوڈ کریں
             val textSize = prefs.getFloat("text_size", 1.0f)
             val timerSize = prefs.getFloat("timer_size", 0.8f)
             val opacity = prefs.getFloat("opacity", 0.8f)
-            val textColor = prefs.getInt("text_color", Color.White.toArgb())
-            val bgColor = prefs.getInt("bg_color", Color.Black.toArgb())
-            val bgWidth = prefs.getFloat("bg_width", 1.0f)
+            val textColor = prefs.getInt("text_color", -1) // Default White
+            val bgColor = prefs.getInt("bg_color", -16777216) // Default Black
+            val fontPath = prefs.getString("last_font_path", null)
 
-            textSub.textSize = 18 * textSize
+            textSub.textSize = 20 * textSize
             textTimer.textSize = 14 * timerSize
             textSub.setTextColor(textColor)
             textTimer.setTextColor(textColor)
             container.alpha = opacity
             container.setBackgroundColor(bgColor)
 
+            // کسٹم فونٹ اپلائی کریں
+            fontPath?.let {
+                val fontFile = File(it)
+                if (fontFile.exists()) {
+                    textSub.typeface = Typeface.createFromFile(fontFile)
+                }
+            }
+
+            // چوڑائی سیٹ کریں
+            val bgWidth = prefs.getFloat("bg_width", 1.0f)
             val layoutParams = container.layoutParams
             layoutParams.width = (resources.displayMetrics.widthPixels * bgWidth).toInt()
             container.layoutParams = layoutParams
@@ -90,16 +99,17 @@ class SubtitleService : Service() {
     }
 
     private fun startSubtitleTimer() {
+        if (isPlaying) return
         startTime = System.currentTimeMillis()
         isPlaying = true
+        
         handler.post(object : Runnable {
             override fun run() {
                 if (!isPlaying) return
                 val elapsed = System.currentTimeMillis() - startTime
                 
-                val currentSub = MainActivity.fullSubtitleList.find { sub -> 
-                    elapsed >= sub.start && elapsed <= sub.end 
-                }
+                // موجودہ سب ٹائٹل تلاش کریں
+                val currentSub = MainActivity.fullSubtitleList.find { it.start <= elapsed && it.end >= elapsed }
 
                 floatingView?.let { view ->
                     view.findViewById<TextView>(R.id.subtitle_text).text = currentSub?.text ?: ""
@@ -130,8 +140,9 @@ class SubtitleService : Service() {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel("subtitle_service", "Subtitle Service", NotificationManager.IMPORTANCE_LOW)
-            (getSystemService(NotificationManager::class.java)).createNotificationChannel(channel)
+            val channel = NotificationChannel("subtitle_service", "Subtitle Player", NotificationManager.IMPORTANCE_LOW)
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(channel)
         }
     }
 }
