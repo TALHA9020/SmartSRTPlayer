@@ -13,6 +13,6 @@ dependencyResolutionManagement {
     }
 }
 
-// یہاں پروجیکٹ کا نام اپ ڈیٹ کر دیا گیا ہے
-rootProject.name = "SmartWhiteBoard"
+// اسے بدل کر آپ کی ایپ کا اصل نام دے دیتے ہیں
+rootProject.name = "Smart SRT Player"
 include ':app'
