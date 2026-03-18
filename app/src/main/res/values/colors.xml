@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#E91E63</color>
+    <!-- ایپ کے نئے اور خوبصورت رنگ -->
+    <color name="primary_blue">#0D47A1</color>
+    <color name="gold_accent">#FFD700</color>
+    <color name="ic_launcher_background">#0D47A1</color>
 </resources>
