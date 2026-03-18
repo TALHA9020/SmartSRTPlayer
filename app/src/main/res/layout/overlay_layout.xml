@@ -7,28 +7,47 @@
     android:gravity="center"
     android:padding="5dp">
 
-    <LinearLayout
+    <!-- کنٹرول پینل: یہاں تمام بٹنز موجود ہیں -->
+    <HorizontalScrollView
         android:id="@+id/controls_layout"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:background="#CC222222"
-        android:orientation="horizontal"
+        android:background="#E6222222"
         android:visibility="gone"
-        android:padding="4dp"
-        android:layout_marginBottom="5dp">
-        <ImageButton android:id="@+id/btn_pick_srt" android:layout_width="35dp" android:layout_height="35dp" android:src="@android:drawable/ic_menu_save" android:background="?android:attr/selectableItemBackground" android:tint="#FFFFFF" />
-        <ImageButton android:id="@+id/btn_pick_font" android:layout_width="35dp" android:layout_height="35dp" android:src="@android:drawable/ic_menu_edit" android:background="?android:attr/selectableItemBackground" android:tint="#FFFFFF" />
-        <ImageButton android:id="@+id/btn_play_pause" android:layout_width="35dp" android:layout_height="35dp" android:src="@android:drawable/ic_media_play" android:background="?android:attr/selectableItemBackground" android:tint="#FFFFFF" />
-        <ImageButton android:id="@+id/btn_close" android:layout_width="35dp" android:layout_height="35dp" android:src="@android:drawable/ic_menu_close_clear_cancel" android:background="?android:attr/selectableItemBackground" android:tint="#FF5252" />
-    </LinearLayout>
+        android:scrollbars="none"
+        android:layout_marginBottom="8dp">
 
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:padding="6dp"
+            android:gravity="center_vertical">
+
+            <ImageButton android:id="@+id/btn_pick_srt" android:layout_width="32dp" android:layout_height="32dp" android:src="@android:drawable/ic_menu_save" android:background="?android:attr/selectableItemBackground" android:contentDescription="SRT" android:tint="#FFFFFF" />
+            <ImageButton android:id="@+id/btn_pick_font" android:layout_width="32dp" android:layout_height="32dp" android:src="@android:drawable/ic_menu_edit" android:background="?android:attr/selectableItemBackground" android:contentDescription="Font" android:tint="#FFFFFF" android:layout_marginStart="8dp"/>
+            
+            <View android:layout_width="1dp" android:layout_height="20dp" android:background="#44FFFFFF" android:layout_marginHorizontal="8dp"/>
+
+            <Button android:id="@+id/btn_offset_minus" android:layout_width="45dp" android:layout_height="32dp" android:text="-0.5s" android:textSize="9sp" android:padding="0dp" android:backgroundTint="#444444"/>
+            <Button android:id="@+id/btn_offset_plus" android:layout_width="45dp" android:layout_height="32dp" android:text="+0.5s" android:textSize="9sp" android:padding="0dp" android:backgroundTint="#444444" android:layout_marginStart="4dp"/>
+
+            <View android:layout_width="1dp" android:layout_height="20dp" android:background="#44FFFFFF" android:layout_marginHorizontal="8dp"/>
+
+            <ImageButton android:id="@+id/btn_toggle_bg" android:layout_width="32dp" android:layout_height="32dp" android:src="@android:drawable/ic_menu_view" android:background="?android:attr/selectableItemBackground" android:tint="#FFEB3B" />
+            <ImageButton android:id="@+id/btn_play_pause" android:layout_width="32dp" android:layout_height="32dp" android:src="@android:drawable/ic_media_play" android:background="?android:attr/selectableItemBackground" android:tint="#FFFFFF" android:layout_marginStart="8dp"/>
+            <ImageButton android:id="@+id/btn_close" android:layout_width="32dp" android:layout_height="32dp" android:src="@android:drawable/ic_menu_close_clear_cancel" android:background="?android:attr/selectableItemBackground" android:tint="#FF5252" android:layout_marginStart="8dp"/>
+        </LinearLayout>
+    </HorizontalScrollView>
+
+    <!-- سب ٹائٹل کنٹینر -->
     <LinearLayout
         android:id="@+id/subtitle_container"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:gravity="center"
-        android:padding="10dp"
+        android:padding="8dp"
         android:background="#CC000000">
 
         <TextView
@@ -38,6 +57,10 @@
             android:text=""
             android:textColor="#FFFFFF"
             android:textSize="20sp"
-            android:textAlignment="center" />
+            android:textAlignment="center"
+            android:shadowColor="#000000"
+            android:shadowRadius="3.0"
+            android:shadowDx="2"
+            android:shadowDy="2"/>
     </LinearLayout>
 </LinearLayout>
