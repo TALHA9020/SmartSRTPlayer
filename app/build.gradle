@@ -4,11 +4,12 @@ plugins {
 }
 
 android {
-    namespace 'com.smart.whiteboard'
+    namespace 'com.smart.srtplayer'
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.smart.whiteboard"
+        // یہاں ہم نے ایپ کی نئی آئی ڈی ڈال دی ہے
+        applicationId "com.smart.srtplayer"
         minSdk 26
         targetSdk 34
         versionCode 1
@@ -45,7 +46,7 @@ dependencies {
     implementation 'androidx.compose.ui:ui-tooling-preview'
     implementation 'androidx.compose.material3:material3'
     
-    // آئیکنز اور اضافی فیچرز کے لیے اہم لائبریریز
+    // آئیکنز اور اضافی فیچرز کے لیے لائبریریز
     implementation 'androidx.compose.material:material-icons-extended'
     implementation "androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0"
 }
