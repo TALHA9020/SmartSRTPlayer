@@ -32,15 +32,15 @@ class SubtitleService : Service() {
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
-            y = 100
+            y = 150
         }
 
-        // ڈریگنگ لاجک
+        // ڈریگنگ اور کنٹرولز دکھانے کی لاجک
         floatingView?.setOnTouchListener(object : View.OnTouchListener {
             private var initialX = 0; private var initialY = 0
             private var initialTouchX = 0f; private var initialTouchY = 0f
@@ -49,7 +49,7 @@ class SubtitleService : Service() {
                     MotionEvent.ACTION_DOWN -> {
                         initialX = params.x; initialY = params.y
                         initialTouchX = event.rawX; initialTouchY = event.rawY
-                        // کلک کرنے پر بٹنز دکھائیں
+                        // ٹچ کرنے پر بٹنز دکھائیں
                         floatingView?.findViewById<View>(R.id.controls_layout)?.visibility = View.VISIBLE
                         return true
                     }
@@ -98,10 +98,10 @@ class SubtitleService : Service() {
                 
                 if (currentSub != null) {
                     txt?.text = currentSub.text
-                    container?.visibility = View.VISIBLE
+                    container?.visibility = View.VISIBLE // ٹیکسٹ ہے تو بیک گراؤنڈ دکھاؤ
                 } else {
                     txt?.text = ""
-                    container?.visibility = View.GONE // جب ٹیکسٹ نہ ہو تو کالا ڈبہ غائب
+                    container?.visibility = View.GONE // ٹیکسٹ نہیں تو سب غائب
                 }
                 handler.postDelayed(this, 100)
             }
@@ -122,7 +122,6 @@ class SubtitleService : Service() {
         txt?.setTextColor(textColor)
         txt?.textSize = textSize
 
-        // فونٹ اپلائی کریں
         prefs.getString("last_font_path", null)?.let {
             if (File(it).exists()) txt?.typeface = Typeface.createFromFile(it)
         }
@@ -134,29 +133,32 @@ class SubtitleService : Service() {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         startActivity(intent)
-    }
-
-    private fun createNotification(): Notification {
-        val channelId = "smart_srt_service"
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(channelId, "SRT Player", NotificationManager.IMPORTANCE_LOW)
-            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
-        }
-        return NotificationCompat.Builder(this, channelId)
-            .setContentTitle("Smart SRT Player Active")
-            .setSmallIcon(android.R.drawable.ic_media_play)
-            .build()
+        // پکر کھلتے ہی کنٹرولز چھپا دیں
+        floatingView?.findViewById<View>(R.id.controls_layout)?.visibility = View.GONE
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         updateUI()
-        // اگر نئی SRT فائل آئی ہے تو ٹائمر زیرو کریں
         if (intent?.getBooleanExtra("reset", false) == true) {
             elapsedAtPause = 0
             isPlaying = false
             floatingView?.findViewById<ImageButton>(R.id.btn_play_pause)?.setImageResource(android.R.drawable.ic_media_play)
+            floatingView?.findViewById<TextView>(R.id.subtitle_text)?.text = ""
+            floatingView?.findViewById<View>(R.id.subtitle_container)?.visibility = View.GONE
         }
         return START_STICKY
+    }
+
+    private fun createNotification(): Notification {
+        val channelId = "srt_player_channel"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(channelId, "Subtitle Player", NotificationManager.IMPORTANCE_LOW)
+            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+        }
+        return NotificationCompat.Builder(this, channelId)
+            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setContentTitle("Smart SRT Player Active")
+            .build()
     }
 
     override fun onDestroy() {
