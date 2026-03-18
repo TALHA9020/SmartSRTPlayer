@@ -24,7 +24,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.io.BufferedReader
@@ -32,10 +31,15 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStreamReader
 
-// ڈیٹا ماڈل
 data class SubtitleItem(val start: Long, val end: Long, val text: String)
 
 class MainActivity : ComponentActivity() {
+    
+    // سروس کے ساتھ ڈیٹا شیئر کرنے کے لیے سٹیٹک آبجیکٹ
+    companion object {
+        var fullSubtitleList = listOf<SubtitleItem>()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
@@ -51,109 +55,60 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun SRTPlayerMainScreen() {
     val context = LocalContext.current
-    var srtContent by remember { mutableStateOf("کوئی فائل منتخب نہیں کی گئی") }
+    var srtPreview by remember { mutableStateOf("کوئی فائل منتخب نہیں کی گئی") }
     var fontPath by remember { mutableStateOf<String?>(null) }
-    var subtitleList by remember { mutableStateOf(listOf<SubtitleItem>()) }
 
-    // فونٹ لوڈ کرنے کا سسٹم
-    val customFontFamily = remember(fontPath) {
-        if (fontPath != null) FontFamily(Font(File(fontPath!!))) else FontFamily.Default
-    }
-
-    // SRT فائل پک کرنے والا لانچر
     val srtLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let {
             val rawText = readTextFromUri(context, it)
-            subtitleList = parseSrt(rawText)
-            srtContent = if (subtitleList.isNotEmpty()) subtitleList[0].text else "فائل خالی ہے یا فارمیٹ غلط ہے"
+            MainActivity.fullSubtitleList = parseSrt(rawText)
+            srtPreview = if (MainActivity.fullSubtitleList.isNotEmpty()) 
+                MainActivity.fullSubtitleList[0].text else "فائل غلط ہے"
         }
     }
 
-    // فونٹ فائل (.ttf) پک کرنے والا لانچر
     val fontLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let {
-            val file = copyFileToInternalStorage(context, it, "custom_font.ttf")
+            val file = copyFileToInternalStorage(context, it, "my_font.ttf")
             fontPath = file.absolutePath
-            Toast.makeText(context, "فونٹ اپلائی ہو گیا!", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "فونٹ لوڈ ہو گیا!", Toast.LENGTH_SHORT).show()
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-            .verticalScroll(rememberScrollState()),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text("Smart SRT Player", fontSize = 30.sp, color = Color.Yellow, modifier = Modifier.padding(20.dp))
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally) {
+        
+        Text("Smart SRT Player", fontSize = 28.sp, color = Color.Yellow, modifier = Modifier.padding(20.dp))
 
-        // ڈسپلے باکس (پریویو)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(180.dp)
-                .background(Color.Black, RoundedCornerShape(12.dp))
-                .padding(15.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = srtContent,
-                color = Color.White,
-                fontSize = 22.sp,
-                fontFamily = customFontFamily,
-                textAlign = TextAlign.Center
-            )
+        Box(modifier = Modifier.fillMaxWidth().height(150.dp).background(Color.Black, RoundedCornerShape(12.dp)).padding(10.dp),
+            contentAlignment = Alignment.Center) {
+            Text(text = srtPreview, color = Color.White, fontSize = 20.sp)
         }
 
         Spacer(modifier = Modifier.height(30.dp))
 
-        // بٹن 1: SRT فائل
-        Button(
-            onClick = { srtLauncher.launch("*/*") },
-            modifier = Modifier.fillMaxWidth().height(55.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
-        ) {
-            Text("1. منتخب کریں SRT فائل")
-        }
-
+        Button(onClick = { srtLauncher.launch("*/*") }, modifier = Modifier.fillMaxWidth()) { Text("1. Select SRT File") }
         Spacer(modifier = Modifier.height(10.dp))
-
-        // بٹن 2: فونٹ فائل
-        Button(
-            onClick = { fontLauncher.launch("*/*") },
-            modifier = Modifier.fillMaxWidth().height(55.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0))
-        ) {
-            Text("2. جمیل نوری فونٹ منتخب کریں (.ttf)")
-        }
-
+        Button(onClick = { fontLauncher.launch("*/*") }, modifier = Modifier.fillMaxWidth()) { Text("2. Select Font (.ttf)") }
         Spacer(modifier = Modifier.height(10.dp))
-
-        // بٹن 3: لانچ فلوٹنگ پلیئر (یہ اب مکمل کام کرے گا)
+        
         Button(
             onClick = {
                 if (checkOverlayPermission(context)) {
                     val intent = Intent(context, SubtitleService::class.java).apply {
-                        putExtra("subtitle_text", srtContent)
                         putExtra("font_path", fontPath)
                     }
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        context.startForegroundService(intent)
-                    } else {
-                        context.startService(intent)
-                    }
-                    Toast.makeText(context, "فلوٹنگ پلیئر شروع ہو رہا ہے...", Toast.LENGTH_SHORT).show()
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
+                    else context.startService(intent)
                 }
             },
-            modifier = Modifier.fillMaxWidth().height(55.dp),
+            modifier = Modifier.fillMaxWidth().height(60.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF8F00))
         ) {
-            Text("3. لانچ فلوٹنگ پلیئر")
+            Text("3. Launch Floating Player", fontSize = 18.sp)
         }
     }
 }
-
-// --- مددگار فنکشنز ---
 
 fun readTextFromUri(context: Context, uri: Uri): String {
     val sb = StringBuilder()
@@ -170,34 +125,38 @@ fun parseSrt(content: String): List<SubtitleItem> {
     val list = mutableListOf<SubtitleItem>()
     val blocks = content.split(Regex("(\\r?\\n){2,}"))
     val timeRegex = Regex("(\\d{2}:\\d{2}:\\d{2},\\d{3}) --> (\\d{2}:\\d{2}:\\d{2},\\d{3})")
+    
     for (block in blocks) {
         val lines = block.trim().lines()
         if (lines.size >= 3) {
             val match = timeRegex.find(lines[1])
             if (match != null) {
-                list.add(SubtitleItem(0L, 0L, lines.drop(2).joinToString("\n")))
+                list.add(SubtitleItem(
+                    parseTimeToMs(match.groupValues[1]),
+                    parseTimeToMs(match.groupValues[2]),
+                    lines.drop(2).joinToString("\n")
+                ))
             }
         }
     }
     return list
 }
 
-fun copyFileToInternalStorage(context: Context, uri: Uri, newName: String): File {
-    val file = File(context.filesDir, newName)
-    context.contentResolver.openInputStream(uri)?.use { input ->
-        FileOutputStream(file).use { output ->
-            input.copyTo(output)
-        }
-    }
+fun parseTimeToMs(time: String): Long {
+    val p = time.replace(',', ':').split(":")
+    return p[0].toLong()*3600000 + p[1].toLong()*60000 + p[2].toLong()*1000 + p[3].toLong()
+}
+
+fun copyFileToInternalStorage(context: Context, uri: Uri, name: String): File {
+    val file = File(context.filesDir, name)
+    context.contentResolver.openInputStream(uri)?.use { i -> FileOutputStream(file).use { o -> i.copyTo(o) } }
     return file
 }
 
 fun checkOverlayPermission(context: Context): Boolean {
-    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-        if (!Settings.canDrawOverlays(context)) {
-            val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
-            context.startActivity(intent)
-            false
-        } else true
-    } else true
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
+        context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")))
+        return false
+    }
+    return true
 }
