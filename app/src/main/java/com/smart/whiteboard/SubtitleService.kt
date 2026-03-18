@@ -1,38 +1,29 @@
 package com.smart.whiteboard
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.Service
-import android.content.Context
-import android.content.Intent
+import android.app.*
+import android.content.*
 import android.graphics.PixelFormat
-import android.os.Build
-import android.os.IBinder
-import android.view.Gravity
-import android.view.MotionEvent
-import android.view.View
-import android.view.WindowManager
+import android.os.*
+import android.view.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
-import androidx.compose.ui.text.font.Font
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.*
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.*
-import androidx.savedstate.SavedStateRegistry
-import androidx.savedstate.SavedStateRegistryController
-import androidx.savedstate.SavedStateRegistryOwner
-import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import androidx.savedstate.*
 import java.io.File
 
 class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
@@ -43,108 +34,116 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
     
     private val lifecycleRegistry = LifecycleRegistry(this)
     private val savedStateRegistryController = SavedStateRegistryController.create(this)
-
     override val lifecycle: Lifecycle get() = lifecycleRegistry
     override val savedStateRegistry: SavedStateRegistry get() = savedStateRegistryController.savedStateRegistry
+
+    private var currentIndex = mutableIntStateOf(0)
+    private var isPlaying = mutableStateOf(false)
+    private var currentTimeMs = 0L
+    private val handler = Handler(Looper.getMainLooper())
+
+    private val ticker = object : Runnable {
+        override fun run() {
+            if (isPlaying.value && MainActivity.fullSubtitleList.isNotEmpty()) {
+                currentTimeMs += 100
+                val list = MainActivity.fullSubtitleList
+                
+                // وقت کے مطابق سب ٹائٹل تلاش کریں
+                val foundIndex = list.indexOfFirst { currentTimeMs >= it.start && currentTimeMs <= it.end }
+                if (foundIndex != -1 && foundIndex != currentIndex.intValue) {
+                    currentIndex.intValue = foundIndex
+                }
+                handler.postDelayed(this, 100)
+            }
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
         savedStateRegistryController.performRestore(null)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
-        windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         startMyForeground()
     }
 
     private fun startMyForeground() {
-        val channelId = "subtitle_service_channel"
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(channelId, "Subtitle Player", NotificationManager.IMPORTANCE_LOW)
-            (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(channel)
-        }
-        val notification = NotificationCompat.Builder(this, channelId)
-            .setContentTitle("Subtitle Player Active")
-            .setSmallIcon(android.R.drawable.ic_media_play)
-            .build()
-        startForeground(2, notification)
+        val chan = NotificationChannel("sub_chan", "Subtitles", NotificationManager.IMPORTANCE_LOW)
+        (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(chan)
+        startForeground(1, NotificationCompat.Builder(this, "sub_chan").setContentTitle("Subtitle Active").setSmallIcon(android.R.drawable.ic_media_play).build())
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val text = intent?.getStringExtra("subtitle_text") ?: "سب ٹائٹل یہاں نظر آئیں گے"
         val fontPath = intent?.getStringExtra("font_path")
-        showFloatingSubtitle(text, fontPath)
+        showFloatingUI(fontPath)
         return START_STICKY
     }
 
-    private fun showFloatingSubtitle(textToDisplay: String, fontPath: String?) {
-        if (floatingView != null) return // اگر پہلے سے موجود ہے تو دوبارہ نہ بنائیں
-
+    private fun showFloatingUI(fontPath: String?) {
+        if (floatingView != null) return
         params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.BOTTOM
-            y = 100 // سکرین کے نیچے سے فاصلہ
-        }
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT
+        ).apply { gravity = Gravity.BOTTOM; y = 150 }
 
         floatingView = ComposeView(this).apply {
             setViewTreeLifecycleOwner(this@SubtitleService)
             setViewTreeSavedStateRegistryOwner(this@SubtitleService)
-
             setContent {
-                val customFont = if (fontPath != null) FontFamily(Font(File(fontPath))) else FontFamily.Default
-                
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp)
-                        .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(15.dp))
-                        .padding(15.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = textToDisplay,
-                        color = Color.White,
-                        fontSize = 24.sp,
-                        fontFamily = customFont,
-                        textAlign = TextAlign.Center
-                    )
+                val font = if (fontPath != null) FontFamily(Font(File(fontPath))) else FontFamily.Default
+                val idx by currentIndex
+                val active by isPlaying
+                val currentText = if (MainActivity.fullSubtitleList.isNotEmpty()) MainActivity.fullSubtitleList[idx].text else "خالی"
+
+                Column(modifier = Modifier.fillMaxWidth().padding(10.dp).background(Color.Black.copy(0.8f), RoundedCornerShape(20.dp)).padding(10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally) {
+                    
+                    Text(text = currentText, color = Color.White, fontSize = 22.sp, fontFamily = font, textAlign = TextAlign.Center)
+                    
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                        IconButton(onClick = { if(currentIndex.intValue > 0) { 
+                            currentIndex.intValue-- 
+                            currentTimeMs = MainActivity.fullSubtitleList[currentIndex.intValue].start
+                        }}) { Icon(Icons.Default.SkipPrevious, "", tint = Color.White) }
+
+                        FloatingActionButton(onClick = { 
+                            isPlaying.value = !isPlaying.value
+                            if(isPlaying.value) handler.post(ticker) else handler.removeCallbacks(ticker)
+                        }, containerColor = Color.Yellow, shape = CircleShape, modifier = Modifier.size(45.dp)) {
+                            Icon(if(active) Icons.Default.Pause else Icons.Default.PlayArrow, "", tint = Color.Black)
+                        }
+
+                        IconButton(onClick = { if(currentIndex.intValue < MainActivity.fullSubtitleList.size - 1) {
+                            currentIndex.intValue++
+                            currentTimeMs = MainActivity.fullSubtitleList[currentIndex.intValue].start
+                        }}) { Icon(Icons.Default.SkipNext, "", tint = Color.White) }
+                        
+                        IconButton(onClick = { stopSelf() }) { Icon(Icons.Default.Close, "", tint = Color.Red) }
+                    }
                 }
             }
         }
 
-        // ڈریگنگ (Dragging) لاجک
         floatingView?.setOnTouchListener(object : View.OnTouchListener {
-            private var initialY: Int = 0
-            private var initialTouchY: Float = 0f
-            override fun onTouch(v: View?, event: MotionEvent): Boolean {
-                when (event.action) {
-                    MotionEvent.ACTION_DOWN -> {
-                        initialY = params.y
-                        initialTouchY = event.rawY
-                        return true
-                    }
-                    MotionEvent.ACTION_MOVE -> {
-                        params.y = initialY - (event.rawY - initialTouchY).toInt()
-                        windowManager.updateViewLayout(floatingView, params)
-                        return true
-                    }
+            private var initialY = 0; private var initialTouchY = 0f
+            override fun onTouch(v: View?, e: MotionEvent): Boolean {
+                when (e.action) {
+                    MotionEvent.ACTION_DOWN -> { initialY = params.y; initialTouchY = e.rawY; return true }
+                    MotionEvent.ACTION_MOVE -> { params.y = initialY - (e.rawY - initialTouchY).toInt()
+                        windowManager.updateViewLayout(floatingView, params); return true }
                 }
                 return false
             }
         })
-
         windowManager.addView(floatingView, params)
     }
 
     override fun onDestroy() {
-        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
+        handler.removeCallbacks(ticker)
         floatingView?.let { windowManager.removeView(it) }
         super.onDestroy()
     }
 
-    override fun onBind(intent: Intent?): IBinder? = null
+    override fun onBind(i: Intent?) = null
 }
