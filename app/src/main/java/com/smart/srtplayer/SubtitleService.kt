@@ -6,6 +6,7 @@ import android.graphics.PixelFormat
 import android.os.*
 import android.view.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable // یہ امپورٹ شامل کیا گیا ہے
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -75,7 +76,6 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
         currentIndex.intValue = prefs.getInt("last_index", 0)
         currentTimeMs = prefs.getLong("last_time_ms", 0L)
         
-        // اگر لسٹ خالی نہیں اور انڈیکس درست ہے تو ٹائم سیٹ کریں
         if (MainActivity.fullSubtitleList.isNotEmpty() && currentIndex.intValue < MainActivity.fullSubtitleList.size) {
             if (currentTimeMs < MainActivity.fullSubtitleList[currentIndex.intValue].start) {
                 currentTimeMs = MainActivity.fullSubtitleList[currentIndex.intValue].start
@@ -159,12 +159,10 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(IntrinsicSize.Min)) {
                         
-                        // ٹائمر صرف ان فولڈ موڈ میں
                         if (!controlsFolded) {
                             Text(text = displayTime, color = textCol.copy(alpha = 0.6f), fontSize = (16 * clockSize).sp, fontFamily = font)
                         }
 
-                        // سب ٹائٹل ٹیکسٹ
                         Text(
                             text = currentText, 
                             color = textCol, 
