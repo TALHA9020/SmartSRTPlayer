@@ -1,7 +1,8 @@
-package com.smart.srtplayer // نئی آئی ڈی کے مطابق پیکج نام
+package com.smart.srtplayer
 
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -12,8 +13,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -21,6 +24,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -37,13 +41,14 @@ class MainActivity : ComponentActivity() {
     
     companion object {
         var fullSubtitleList = listOf<SubtitleItem>()
+        const val PREFS_NAME = "SRTPlayerPrefs"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme {
-                Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFF1A1A1A)) {
+                Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFF121212)) {
                     SRTPlayerMainScreen()
                 }
             }
@@ -54,9 +59,19 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun SRTPlayerMainScreen() {
     val context = LocalContext.current
+    val prefs = context.getSharedPreferences(MainActivity.PREFS_NAME, Context.MODE_PRIVATE)
+    
+    // سٹیٹس (States) سیٹنگز کے لیے
     var srtPreview by remember { mutableStateOf("کوئی فائل منتخب نہیں کی گئی") }
     var fontPath by remember { mutableStateOf<String?>(null) }
+    
+    // سیٹنگز کی ڈیفالٹ ویلیوز لوڈ کریں
+    var windowSize by remember { mutableStateOf(prefs.getFloat("window_size", 1.0f)) }
+    var textColor by remember { mutableStateOf(Color(prefs.getInt("text_color", Color.White.toArgb()))) }
+    var bgColor by remember { mutableStateOf(Color(prefs.getInt("bg_color", Color.Black.toArgb()))) }
+    var opacity by remember { mutableStateOf(prefs.getFloat("opacity", 0.8f)) }
 
+    // فائل لانچرز
     val srtLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let {
             val rawText = readTextFromUri(context, it)
@@ -74,26 +89,67 @@ fun SRTPlayerMainScreen() {
         }
     }
 
+    // سیٹنگز کو محفوظ کرنے کا فنکشن
+    fun saveSettings() {
+        prefs.edit().apply {
+            putFloat("window_size", windowSize)
+            putInt("text_color", textColor.toArgb())
+            putInt("bg_color", bgColor.toArgb())
+            putFloat("opacity", opacity)
+            apply()
+        }
+    }
+
     Column(modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally) {
         
-        Text("Smart SRT Player", fontSize = 28.sp, color = Color.Yellow, modifier = Modifier.padding(20.dp))
+        Text("Smart SRT Player", fontSize = 28.sp, color = Color(0xFFFFD700), modifier = Modifier.padding(20.dp))
 
-        Box(modifier = Modifier.fillMaxWidth().height(150.dp).background(Color.Black, RoundedCornerShape(12.dp)).padding(10.dp),
+        // پریویو بکس
+        val previewFont = if (fontPath != null) FontFamily(Font(File(fontPath))) else FontFamily.Default
+        Box(modifier = Modifier.fillMaxWidth().height(120.dp)
+            .background(bgColor.copy(alpha = opacity), RoundedCornerShape(12.dp))
+            .padding(10.dp),
             contentAlignment = Alignment.Center) {
-            Text(text = srtPreview, color = Color.White, fontSize = 20.sp)
+            Text(text = srtPreview, color = textColor, fontSize = (20 * windowSize).sp, fontFamily = previewFont)
         }
 
-        Spacer(modifier = Modifier.height(30.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
-        Button(onClick = { srtLauncher.launch("*/*") }, modifier = Modifier.fillMaxWidth()) { Text("1. Select SRT File") }
-        Spacer(modifier = Modifier.height(10.dp))
-        Button(onClick = { fontLauncher.launch("*/*") }, modifier = Modifier.fillMaxWidth()) { Text("2. Select Font (.ttf)") }
-        Spacer(modifier = Modifier.height(10.dp))
+        // فائل سلیکشن بٹنز
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+            Button(onClick = { srtLauncher.launch("*/*") }, modifier = Modifier.weight(1f)) { Text("1. Select SRT") }
+            Spacer(modifier = Modifier.width(10.dp))
+            Button(onClick = { fontLauncher.launch("*/*") }, modifier = Modifier.weight(1f)) { Text("2. Select Font") }
+        }
+
+        Spacer(modifier = Modifier.height(25.dp))
+        Divider(color = Color.Gray, thickness = 1.dp)
+        Spacer(modifier = Modifier.height(15.dp))
+
+        // *** سیٹنگز کا نیا سیکشن ***
+        Text("Player Settings", fontSize = 20.sp, color = Color.White, modifier = Modifier.align(Alignment.Start))
         
+        // 1. ونڈو سائز سلائیڈر
+        SettingSlider(label = "Window Size", value = windowSize, onValueChange = { windowSize = it; saveSettings() }, range = 0.5f..1.5f)
+        
+        // 2. اوپیسٹی سلائیڈر
+        SettingSlider(label = "Background Opacity", value = opacity, onValueChange = { opacity = it; saveSettings() }, range = 0.0f..1.0f)
+
+        // 3. کلر پکرز (سادہ دائرے)
+        ColorPickerRow(label = "Text Color", selectedColor = textColor, onColorSelected = { textColor = it; saveSettings() },
+            colors = listOf(Color.White, Color.Yellow, Color.Cyan, Color.Green))
+        
+        ColorPickerRow(label = "Background Color", selectedColor = bgColor, onColorSelected = { bgColor = it; saveSettings() },
+            colors = listOf(Color.Black, Color.DarkGray, Color.Blue, Color(0xFF330000)))
+
+        Spacer(modifier = Modifier.height(30.dp))
+        
+        // لانچ بٹن
         Button(
             onClick = {
                 if (checkOverlayPermission(context)) {
+                    saveSettings() // لانچ سے پہلے سیٹنگز سیو کریں
                     val intent = Intent(context, SubtitleService::class.java).apply {
                         putExtra("font_path", fontPath)
                     }
@@ -104,10 +160,42 @@ fun SRTPlayerMainScreen() {
             modifier = Modifier.fillMaxWidth().height(60.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF8F00))
         ) {
-            Text("3. Launch Floating Player", fontSize = 18.sp)
+            Text("3. Launch Floating Player", fontSize = 18.sp, color = Color.Black)
         }
     }
 }
+
+// *** ہیلپر کمپوزبلز سیٹنگز کے لیے ***
+
+@Composable
+fun SettingSlider(label: String, value: Float, onValueChange: (Float) -> Unit, range: ClosedRange<Float>) {
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(label, color = Color.LightGray)
+            Text("%.1f".format(value), color = Color.White)
+        }
+        Slider(value = value, onValueChange = onValueChange, valueRange = range,
+            colors = SliderDefaults.colors(thumbColor = Color(0xFFFFD700), activeTrackColor = Color(0xFFFFD700)))
+    }
+}
+
+@Composable
+fun ColorPickerRow(label: String, selectedColor: Color, onColorSelected: (Color) -> Unit, colors: List<Color>) {
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(label, color = Color.LightGray)
+        Row {
+            colors.forEach { color ->
+                Box(modifier = Modifier.size(35.dp).padding(4.dp)
+                    .background(color, CircleShape)
+                    .clickable { onColorSelected(color) }
+                    .then(if (color == selectedColor) Modifier.background(Color.White.copy(0.3f), CircleShape) else Modifier))
+            }
+        }
+    }
+}
+
+// *** پرانے ہیلپر فنکشنز (بغیر تبدیلی کے) ***
 
 fun readTextFromUri(context: Context, uri: Uri): String {
     val sb = StringBuilder()
