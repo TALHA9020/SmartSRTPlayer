@@ -22,14 +22,12 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.text.font.*
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.*
 import androidx.savedstate.*
 import java.io.File
-import kotlin.math.roundToInt
 
 class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
 
@@ -56,14 +54,11 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
                 currentTimeMs += 100
                 val list = MainActivity.fullSubtitleList
                 
-                if (currentIndex.intValue < list.size) {
-                    // Check if current subtitle ended or next one started
-                    val foundIndex = list.indexOfFirst { currentTimeMs >= it.start && currentTimeMs <= it.end }
-                    if (foundIndex != -1 && foundIndex != currentIndex.intValue) {
-                        currentIndex.intValue = foundIndex
-                        saveProgress() // ہر سب ٹائٹل پر پروگریس سیو کریں
-                    }
+                val foundIndex = list.indexOfFirst { currentTimeMs >= it.start && currentTimeMs <= it.end }
+                if (foundIndex != -1 && foundIndex != currentIndex.intValue) {
+                    currentIndex.intValue = foundIndex
                 }
+                saveProgress()
                 handler.postDelayed(this, 100)
             }
         }
@@ -76,20 +71,34 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         
-        // لوڈ کریں کہ کہاں چھوڑا تھا
         val prefs = getSharedPreferences(MainActivity.PREFS_NAME, Context.MODE_PRIVATE)
         currentIndex.intValue = prefs.getInt("last_index", 0)
-        if (MainActivity.fullSubtitleList.isNotEmpty() && currentIndex.intValue < MainActivity.fullSubtitleList.size) {
-            currentTimeMs = MainActivity.fullSubtitleList[currentIndex.intValue].start
-        }
+        currentTimeMs = prefs.getLong("last_time_ms", 0L)
         
+        // اگر لسٹ خالی نہیں اور انڈیکس درست ہے تو ٹائم سیٹ کریں
+        if (MainActivity.fullSubtitleList.isNotEmpty() && currentIndex.intValue < MainActivity.fullSubtitleList.size) {
+            if (currentTimeMs < MainActivity.fullSubtitleList[currentIndex.intValue].start) {
+                currentTimeMs = MainActivity.fullSubtitleList[currentIndex.intValue].start
+            }
+        }
+
         startMyForeground()
         showFloatingUI()
     }
 
     private fun saveProgress() {
         val prefs = getSharedPreferences(MainActivity.PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit().putInt("last_index", currentIndex.intValue).apply()
+        prefs.edit()
+            .putInt("last_index", currentIndex.intValue)
+            .putLong("last_time_ms", currentTimeMs)
+            .apply()
+    }
+
+    private fun formatTime(ms: Long): String {
+        val totalSecs = ms / 1000
+        val mins = totalSecs / 60
+        val secs = totalSecs % 60
+        return "%02d:%02d".format(mins, secs)
     }
 
     private fun startMyForeground() {
@@ -104,20 +113,20 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
     private fun showFloatingUI() {
         val prefs = getSharedPreferences(MainActivity.PREFS_NAME, Context.MODE_PRIVATE)
         val fontPath = prefs.getString("last_font_path", null)
-        val windowSizeMultiplier = prefs.getFloat("window_size", 1.0f)
+        val tSize = prefs.getFloat("text_size", 1.0f)
+        val clockSize = prefs.getFloat("timer_size", 0.8f)
         val textCol = Color(prefs.getInt("text_color", Color.White.toArgb()))
         val bgCol = Color(prefs.getInt("bg_color", Color.Black.toArgb()))
         val opac = prefs.getFloat("opacity", 0.8f)
 
         params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT, // تبدیل شدہ: میچ پیرنٹ کے بجائے ریپ کنٹینٹ
+            WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT
         ).apply { 
             gravity = Gravity.TOP or Gravity.START
-            x = 0
-            y = 500 
+            x = 0; y = 400 
         }
 
         floatingView = ComposeView(this).apply {
@@ -129,13 +138,13 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
                 val active by isPlaying
                 val bgVisible by isBgVisible
                 val controlsFolded by isControlsFolded
+                val displayTime = formatTime(currentTimeMs)
                 
                 val currentText = if (MainActivity.fullSubtitleList.isNotEmpty() && idx < MainActivity.fullSubtitleList.size) 
-                    MainActivity.fullSubtitleList[idx].text else "ختم یا خالی"
+                    MainActivity.fullSubtitleList[idx].text else "پلے کریں..."
 
                 val finalBgColor = if (bgVisible) bgCol.copy(alpha = opac) else Color.Transparent
 
-                // مین ڈریگ ایبل باکس
                 Box(modifier = Modifier
                     .pointerInput(Unit) {
                         detectDragGestures { change, dragAmount ->
@@ -145,21 +154,26 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
                             windowManager.updateViewLayout(floatingView, params)
                         }
                     }
-                    .background(finalBgColor, RoundedCornerShape(16.dp))
-                    .padding(if (controlsFolded) 8.dp else 12.dp)
+                    .background(finalBgColor, RoundedCornerShape(12.dp))
+                    .padding(8.dp)
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.width(IntrinsicSize.Min).padding(horizontal = 10.dp)
-                    ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(IntrinsicSize.Min)) {
+                        
+                        // ٹائمر صرف ان فولڈ موڈ میں
+                        if (!controlsFolded) {
+                            Text(text = displayTime, color = textCol.copy(alpha = 0.6f), fontSize = (16 * clockSize).sp, fontFamily = font)
+                        }
+
                         // سب ٹائٹل ٹیکسٹ
                         Text(
                             text = currentText, 
                             color = textCol, 
-                            fontSize = (22 * windowSizeMultiplier).sp, 
-                            fontFamily = font, 
+                            fontSize = (22 * tSize).sp, 
+                            fontFamily = font,
                             textAlign = TextAlign.Center,
-                            modifier = Modifier.clickable { isControlsFolded.value = !isControlsFolded.value }
+                            modifier = Modifier
+                                .clickable { isControlsFolded.value = !isControlsFolded.value }
+                                .padding(horizontal = 8.dp)
                         )
                         
                         if (!controlsFolded) {
@@ -169,7 +183,7 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
                                     currentIndex.intValue-- 
                                     currentTimeMs = MainActivity.fullSubtitleList[currentIndex.intValue].start
                                     saveProgress()
-                                }}) { Icon(Icons.Default.SkipPrevious, "", tint = textCol, modifier = Modifier.size(20.dp)) }
+                                }}) { Icon(Icons.Default.SkipPrevious, "", tint = textCol, modifier = Modifier.size(24.dp)) }
 
                                 FloatingActionButton(
                                     onClick = { 
@@ -178,16 +192,14 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
                                     }, 
                                     containerColor = Color(0xFFFFD700), 
                                     shape = CircleShape, 
-                                    modifier = Modifier.size(40.dp)
-                                ) {
-                                    Icon(if(active) Icons.Default.Pause else Icons.Default.PlayArrow, "", tint = Color.Black)
-                                }
+                                    modifier = Modifier.size(42.dp)
+                                ) { Icon(if(active) Icons.Default.Pause else Icons.Default.PlayArrow, "", tint = Color.Black) }
 
                                 IconButton(onClick = { if(currentIndex.intValue < MainActivity.fullSubtitleList.size - 1) {
                                     currentIndex.intValue++
                                     currentTimeMs = MainActivity.fullSubtitleList[currentIndex.intValue].start
                                     saveProgress()
-                                }}) { Icon(Icons.Default.SkipNext, "", tint = textCol, modifier = Modifier.size(20.dp)) }
+                                }}) { Icon(Icons.Default.SkipNext, "", tint = textCol, modifier = Modifier.size(24.dp)) }
                                 
                                 IconButton(onClick = { isBgVisible.value = !isBgVisible.value }) { 
                                     Icon(if(bgVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff, "", tint = textCol, modifier = Modifier.size(20.dp)) 
