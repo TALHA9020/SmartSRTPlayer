@@ -133,7 +133,8 @@ fun SRTPlayerMainScreen() {
         }
 
         Spacer(modifier = Modifier.height(20.dp))
-        HorizontalDivider(color = Color.Gray, thickness = 0.5.dp)
+        // یہاں ہم نے Divider استعمال کیا ہے
+        Divider(color = Color.Gray, thickness = 0.5.dp)
         Spacer(modifier = Modifier.height(15.dp))
 
         Text("Player Customization", fontSize = 18.sp, color = Color.White, modifier = Modifier.align(Alignment.Start))
