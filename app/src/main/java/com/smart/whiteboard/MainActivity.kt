@@ -107,7 +107,7 @@ fun SRTPlayerMainScreen() {
 
         Spacer(modifier = Modifier.height(30.dp))
 
-        // کنٹرول بٹنز
+        // بٹن 1: SRT فائل
         Button(
             onClick = { srtLauncher.launch("*/*") },
             modifier = Modifier.fillMaxWidth().height(55.dp),
@@ -118,6 +118,7 @@ fun SRTPlayerMainScreen() {
 
         Spacer(modifier = Modifier.height(10.dp))
 
+        // بٹن 2: فونٹ فائل
         Button(
             onClick = { fontLauncher.launch("*/*") },
             modifier = Modifier.fillMaxWidth().height(55.dp),
@@ -128,11 +129,20 @@ fun SRTPlayerMainScreen() {
 
         Spacer(modifier = Modifier.height(10.dp))
 
+        // بٹن 3: لانچ فلوٹنگ پلیئر (یہ اب مکمل کام کرے گا)
         Button(
             onClick = {
                 if (checkOverlayPermission(context)) {
-                    // یہاں سروس اسٹارٹ کرنے کا کوڈ آئے گا
-                    Toast.makeText(context, "فلوٹنگ ونڈو تیار ہے!", Toast.LENGTH_SHORT).show()
+                    val intent = Intent(context, SubtitleService::class.java).apply {
+                        putExtra("subtitle_text", srtContent)
+                        putExtra("font_path", fontPath)
+                    }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        context.startForegroundService(intent)
+                    } else {
+                        context.startService(intent)
+                    }
+                    Toast.makeText(context, "فلوٹنگ پلیئر شروع ہو رہا ہے...", Toast.LENGTH_SHORT).show()
                 }
             },
             modifier = Modifier.fillMaxWidth().height(55.dp),
@@ -143,7 +153,7 @@ fun SRTPlayerMainScreen() {
     }
 }
 
-// مددگار فنکشنز (Helper Functions)
+// --- مددگار فنکشنز ---
 
 fun readTextFromUri(context: Context, uri: Uri): String {
     val sb = StringBuilder()
@@ -160,7 +170,6 @@ fun parseSrt(content: String): List<SubtitleItem> {
     val list = mutableListOf<SubtitleItem>()
     val blocks = content.split(Regex("(\\r?\\n){2,}"))
     val timeRegex = Regex("(\\d{2}:\\d{2}:\\d{2},\\d{3}) --> (\\d{2}:\\d{2}:\\d{2},\\d{3})")
-
     for (block in blocks) {
         val lines = block.trim().lines()
         if (lines.size >= 3) {
