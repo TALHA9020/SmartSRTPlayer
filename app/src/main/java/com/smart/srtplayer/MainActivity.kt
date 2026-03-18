@@ -25,8 +25,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.io.File
 
-// SubtitleItem ڈیٹا کلاس (اگر پہلے سے موجود نہ ہو)
-// data class SubtitleItem(val start: Long, val end: Long, val text: String)
+// ڈیٹا کلاس جو دونوں فائلوں کے لیے ضروری ہے
+data class SubtitleItem(val start: Long, val end: Long, val text: String)
 
 class MainActivity : ComponentActivity() {
     companion object {
@@ -41,7 +41,6 @@ class MainActivity : ComponentActivity() {
         setContent {
             val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
             
-            // سیٹنگز کے لیے سٹیٹس (States)
             var textSize by remember { mutableFloatStateOf(prefs.getFloat("text_size", 1.0f)) }
             var timerSize by remember { mutableFloatStateOf(prefs.getFloat("timer_size", 0.8f)) }
             var opacity by remember { mutableFloatStateOf(prefs.getFloat("opacity", 0.8f)) }
@@ -56,9 +55,10 @@ class MainActivity : ComponentActivity() {
             ) {
                 Text("Smart SRT Settings", style = MaterialTheme.typography.headlineMedium)
                 
-                // --- لائیو پری ویو سیکشن ---
                 Spacer(modifier = Modifier.height(10.dp))
                 Text("Preview:", style = MaterialTheme.typography.labelLarge)
+                
+                // لائیو پری ویو باکس
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -68,7 +68,6 @@ class MainActivity : ComponentActivity() {
                         .border(1.dp, Color.Gray.copy(alpha = 0.3f), RoundedCornerShape(8.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    // ونڈو پری ویو
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier
@@ -81,42 +80,32 @@ class MainActivity : ComponentActivity() {
                             "یہ سب ٹائٹل کا پری ویو ہے", 
                             color = Color(textColor), 
                             fontSize = (18 * textSize).sp,
-                            textAlign = TextAlign.Center,
-                            lineHeight = (22 * textSize).sp
+                            textAlign = TextAlign.Center
                         )
                     }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // سروس کنٹرول بٹنز
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        modifier = Modifier.weight(1f),
-                        onClick = {
-                            if (!Settings.canDrawOverlays(this@MainActivity)) {
-                                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
-                            } else {
-                                startForegroundService(Intent(this@MainActivity, SubtitleService::class.java))
-                            }
+                    Button(modifier = Modifier.weight(1f), onClick = {
+                        if (!Settings.canDrawOverlays(this@MainActivity)) {
+                            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+                        } else {
+                            startForegroundService(Intent(this@MainActivity, SubtitleService::class.java))
                         }
-                    ) { Text("Start Player") }
+                    }) { Text("Start Player") }
 
-                    Button(
-                        modifier = Modifier.weight(1f),
-                        onClick = {
-                            stopService(Intent(this@MainActivity, SubtitleService::class.java))
-                        }, 
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.Red.copy(alpha = 0.8f))
-                    ) { 
+                    Button(modifier = Modifier.weight(1f), onClick = {
+                        stopService(Intent(this@MainActivity, SubtitleService::class.java))
+                    }, colors = ButtonDefaults.buttonColors(containerColor = Color.Red.copy(alpha = 0.8f))) { 
                         Text("Stop Player", color = Color.White) 
                     }
                 }
 
-                // یہاں ہم نے Divider استعمال کیا ہے جو پرانے ورژن میں بھی چلتا ہے
+                // Divider جو پرانے ورژن پر بھی چلے گا
                 Divider(modifier = Modifier.padding(vertical = 20.dp), thickness = 0.5.dp, color = Color.Gray)
 
-                // --- سیٹنگز سلائیڈرز ---
                 SettingControl("Text Size", textSize, 0.5f..3.0f) {
                     textSize = it
                     prefs.edit().putFloat("text_size", it).apply()
@@ -143,25 +132,20 @@ class MainActivity : ComponentActivity() {
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // --- کلر ٹوگلز ---
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     ColorToggleBtn("Text Color", Color(textColor)) {
                         val nextCol = when(textColor) {
                             Color.White.toArgb() -> Color.Yellow.toArgb()
                             Color.Yellow.toArgb() -> Color.Cyan.toArgb()
-                            Color.Cyan.toArgb() -> Color.Green.toArgb()
                             else -> Color.White.toArgb()
                         }
                         textColor = nextCol
                         prefs.edit().putInt("text_color", nextCol).apply()
                         refreshService()
                     }
-                    
                     ColorToggleBtn("BG Color", Color(bgColor)) {
                         val nextCol = when(bgColor) {
                             Color.Black.toArgb() -> Color.DarkGray.toArgb()
-                            Color.DarkGray.toArgb() -> Color(0xFF1A1A1A).toArgb()
-                            Color(0xFF1A1A1A).toArgb() -> Color(0xFF001220).toArgb() // Deep Blue
                             else -> Color.Black.toArgb()
                         }
                         bgColor = nextCol
@@ -169,7 +153,6 @@ class MainActivity : ComponentActivity() {
                         refreshService()
                     }
                 }
-                
                 Spacer(modifier = Modifier.height(40.dp))
             }
         }
@@ -178,10 +161,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     fun SettingControl(label: String, value: Float, range: ClosedFloatingPointRange<Float>, onValueChange: (Float) -> Unit) {
         Column(modifier = Modifier.padding(vertical = 4.dp)) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(label, style = MaterialTheme.typography.bodySmall)
-                Text(String.format("%.1f", value), style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-            }
+            Text("$label: ${String.format("%.1f", value)}", style = MaterialTheme.typography.bodySmall)
             Slider(value = value, onValueChange = onValueChange, valueRange = range)
         }
     }
@@ -189,14 +169,9 @@ class MainActivity : ComponentActivity() {
     @Composable
     fun ColorToggleBtn(label: String, currentColor: Color, onClick: () -> Unit) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(label, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(bottom = 4.dp))
-            Button(
-                onClick = onClick,
-                colors = ButtonDefaults.buttonColors(containerColor = currentColor),
-                modifier = Modifier.size(width = 100.dp, height = 40.dp).border(1.dp, Color.Gray, RoundedCornerShape(8.dp)),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                // بٹن کے اندر کا ٹیکسٹ رنگ کے لحاظ سے بدلیں تاکہ نظر آئے
+            Text(label, style = MaterialTheme.typography.labelSmall)
+            Button(onClick = onClick, colors = ButtonDefaults.buttonColors(containerColor = currentColor),
+                modifier = Modifier.size(width = 100.dp, height = 40.dp).border(1.dp, Color.Gray, RoundedCornerShape(8.dp))) {
                 val contentCol = if(currentColor == Color.White || currentColor == Color.Yellow) Color.Black else Color.White
                 Text("Change", color = contentCol, fontSize = 10.sp)
             }
@@ -205,57 +180,43 @@ class MainActivity : ComponentActivity() {
 
     private fun refreshService() {
         if (isServiceRunning()) {
-            val intent = Intent(this, SubtitleService::class.java)
-            startForegroundService(intent)
+            startForegroundService(Intent(this, SubtitleService::class.java))
         }
     }
 
     private fun isServiceRunning(): Boolean {
         val manager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-        val runningServices = manager.getRunningServices(Int.MAX_VALUE)
-        for (service in runningServices) {
-            if (SubtitleService::class.java.name == service.service.className) {
-                return true
-            }
-        }
-        return false
+        return manager.getRunningServices(Int.MAX_VALUE).any { it.service.className == SubtitleService::class.java.name }
     }
 
     private fun loadLastSrt() {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val path = prefs.getString("last_srt_path", null)
-        if (path != null && File(path).exists()) {
-            fullSubtitleList.clear()
-            fullSubtitleList.addAll(parseSrt(File(path).readText()))
+        path?.let { file ->
+            if (File(file).exists()) {
+                fullSubtitleList.clear()
+                fullSubtitleList.addAll(parseSrt(File(file).readText()))
+            }
         }
     }
 
     private fun parseSrt(content: String): List<SubtitleItem> {
         val list = mutableListOf<SubtitleItem>()
-        try {
-            val blocks = content.split(Regex("(\\n\\n)|(\\r\\n\\r\\n)"))
-            for (block in blocks) {
-                val lines = block.trim().lines()
-                if (lines.size >= 3) {
-                    val timeRange = lines[1].split(" --> ")
-                    if (timeRange.size == 2) {
-                        list.add(SubtitleItem(
-                            start = timeToMs(timeRange[0]),
-                            end = timeToMs(timeRange[1]),
-                            text = lines.drop(2).joinToString("\n")
-                        ))
-                    }
+        val blocks = content.split(Regex("(\\n\\n)|(\\r\\n\\r\\n)"))
+        for (block in blocks) {
+            val lines = block.trim().lines()
+            if (lines.size >= 3) {
+                val timeRange = lines[1].split(" --> ")
+                if (timeRange.size == 2) {
+                    list.add(SubtitleItem(timeToMs(timeRange[0]), timeToMs(timeRange[1]), lines.drop(2).joinToString("\n")))
                 }
             }
-        } catch (e: Exception) { e.printStackTrace() }
+        }
         return list
     }
 
     private fun timeToMs(time: String): Long {
         val parts = time.replace(",", ".").split(":")
-        val h = parts[0].trim().toLong() * 3600000
-        val m = parts[1].trim().toLong() * 60000
-        val s = (parts[2].trim().toDouble() * 1000).toLong()
-        return h + m + s
+        return (parts[0].trim().toLong() * 3600000) + (parts[1].trim().toLong() * 60000) + (parts[2].trim().toDouble() * 1000).toLong()
     }
 }
