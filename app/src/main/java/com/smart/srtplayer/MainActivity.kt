@@ -25,7 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.io.File
 
-// ڈیٹا کلاس جو دونوں فائلوں کے لیے ضروری ہے
+// ڈیٹا کلاس جو پوری ایپ کے لیے ہے
 data class SubtitleItem(val start: Long, val end: Long, val text: String)
 
 class MainActivity : ComponentActivity() {
@@ -56,7 +56,7 @@ class MainActivity : ComponentActivity() {
                 Text("Smart SRT Settings", style = MaterialTheme.typography.headlineMedium)
                 
                 Spacer(modifier = Modifier.height(10.dp))
-                Text("Preview:", style = MaterialTheme.typography.labelLarge)
+                Text("Preview (پری ویو):", style = MaterialTheme.typography.labelLarge)
                 
                 // لائیو پری ویو باکس
                 Box(
@@ -103,28 +103,27 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // Divider جو پرانے ورژن پر بھی چلے گا
                 Divider(modifier = Modifier.padding(vertical = 20.dp), thickness = 0.5.dp, color = Color.Gray)
 
-                SettingControl("Text Size", textSize, 0.5f..3.0f) {
+                SettingControl("Text Size (ٹیکسٹ سائز)", textSize, 0.5f..3.0f) {
                     textSize = it
                     prefs.edit().putFloat("text_size", it).apply()
                     refreshService()
                 }
 
-                SettingControl("Timer Size", timerSize, 0.5f..2.0f) {
+                SettingControl("Timer Size (ٹائمر سائز)", timerSize, 0.5f..2.0f) {
                     timerSize = it
                     prefs.edit().putFloat("timer_size", it).apply()
                     refreshService()
                 }
 
-                SettingControl("BG Width", bgWidth, 0.4f..1.0f) {
+                SettingControl("BG Width (چوڑائی)", bgWidth, 0.4f..1.0f) {
                     bgWidth = it
                     prefs.edit().putFloat("bg_width", it).apply()
                     refreshService()
                 }
 
-                SettingControl("Opacity", opacity, 0.0f..1.0f) {
+                SettingControl("Opacity (شفافیت)", opacity, 0.0f..1.0f) {
                     opacity = it
                     prefs.edit().putFloat("opacity", it).apply()
                     refreshService()
