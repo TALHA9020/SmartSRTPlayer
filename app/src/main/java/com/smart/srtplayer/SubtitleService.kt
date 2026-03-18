@@ -43,10 +43,13 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
     override val lifecycle: Lifecycle get() = lifecycleRegistry
     override val savedStateRegistry: SavedStateRegistry get() = savedStateRegistryController.savedStateRegistry
 
-    private var currentIndex = mutableIntStateOf(0)
+    private var currentIndex = mutableIntStateOf(-1)
     private var isPlaying = mutableStateOf(false)
     private var baseTimeMs = mutableLongStateOf(0L)
     private var timeOffsetMs = mutableLongStateOf(0L)
+    
+    // ٹائمر کی درستی کے لیے
+    private var lastSystemTime = 0L
 
     private val handler = Handler(Looper.getMainLooper())
     private var isBgVisible = mutableStateOf(true)
@@ -55,23 +58,24 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
     private val ticker = object : Runnable {
         override fun run() {
             if (isPlaying.value) {
-                baseTimeMs.longValue += 100
+                val now = SystemClock.elapsedRealtime()
+                if (lastSystemTime != 0L) {
+                    val diff = now - lastSystemTime
+                    baseTimeMs.longValue += diff
+                }
+                lastSystemTime = now
                 updateIndexByTime(baseTimeMs.longValue + timeOffsetMs.longValue)
                 saveProgress()
-                handler.postDelayed(this, 100)
+                handler.postDelayed(this, 50) 
             }
         }
     }
 
     private fun updateIndexByTime(totalTime: Long) {
         val list = MainActivity.fullSubtitleList
+        // صرف وہ ٹیکسٹ دکھائیں جو اس وقت کے اندر آتا ہو
         val foundIndex = list.indexOfFirst { totalTime >= it.start && totalTime <= it.end }
-        if (foundIndex != -1) {
-            currentIndex.intValue = foundIndex
-        } else {
-            val nextIdx = list.indexOfFirst { it.start > totalTime }
-            if (nextIdx != -1) currentIndex.intValue = nextIdx
-        }
+        currentIndex.intValue = foundIndex 
     }
 
     override fun onCreate() {
@@ -81,19 +85,54 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         
+        // سیو شدہ ڈیٹا لوڈ کریں
         val prefs = getSharedPreferences(MainActivity.PREFS_NAME, Context.MODE_PRIVATE)
-        currentIndex.intValue = prefs.getInt("last_index", 0)
         baseTimeMs.longValue = prefs.getLong("last_time_ms", 0L)
         timeOffsetMs.longValue = prefs.getLong("last_offset_ms", 0L)
         
+        // اگر سروس ری سٹارٹ ہوئی ہے تو سب ٹائٹلز دوبارہ لوڈ کرنے کی ضرورت پڑ سکتی ہے
+        if (MainActivity.fullSubtitleList.isEmpty()) {
+            val srtPath = prefs.getString("last_srt_path", null)
+            srtPath?.let { 
+                MainActivity.fullSubtitleList.clear()
+                MainActivity.fullSubtitleList.addAll(parseSrt(File(it).readText())) 
+            }
+        }
+
         startMyForeground()
         showFloatingUI()
+    }
+
+    private fun parseSrt(content: String): List<SubtitleItem> {
+        val list = mutableListOf<SubtitleItem>()
+        val blocks = content.split(Regex("(\\n\\n)|(\\r\\n\\r\\n)"))
+        for (block in blocks) {
+            val lines = block.trim().lines()
+            if (lines.size >= 3) {
+                val timeRange = lines[1].split(" --> ")
+                if (timeRange.size == 2) {
+                    list.add(SubtitleItem(
+                        start = timeToMs(timeRange[0]),
+                        end = timeToMs(timeRange[1]),
+                        text = lines.drop(2).joinToString("\n")
+                    ))
+                }
+            }
+        }
+        return list
+    }
+
+    private fun timeToMs(time: String): Long {
+        val parts = time.replace(",", ".").split(":")
+        val h = parts[0].trim().toLong() * 3600000
+        val m = parts[1].trim().toLong() * 60000
+        val s = (parts[2].trim().toDouble() * 1000).toLong()
+        return h + m + s
     }
 
     private fun saveProgress() {
         val prefs = getSharedPreferences(MainActivity.PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit()
-            .putInt("last_index", currentIndex.intValue)
             .putLong("last_time_ms", baseTimeMs.longValue)
             .putLong("last_offset_ms", timeOffsetMs.longValue)
             .apply()
@@ -121,53 +160,38 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
         val scope = rememberCoroutineScope()
         var job by remember { mutableStateOf<Job?>(null) }
 
-        Box(
-            modifier = Modifier
-                .pointerInput(Unit) {
-                    detectTapGestures(
-                        onPress = {
-                            job = scope.launch {
-                                var speed = 1000L // شروع میں 1 سیکنڈ
-                                var count = 0
-                                while (isActive) {
-                                    if (isForward) baseTimeMs.longValue += speed
-                                    else baseTimeMs.longValue -= speed
-                                    
-                                    updateIndexByTime(baseTimeMs.longValue + timeOffsetMs.longValue)
-                                    
-                                    // رفتار بڑھانے کی لاجک
-                                    count++
-                                    if (count > 5) speed = 5000L // 5 سیکنڈ بعد سپیڈ 5x
-                                    if (count > 15) speed = 30000L // مزید دبانے پر 30 سیکنڈ (آدھا منٹ)
-                                    if (count > 30) speed = 120000L // بہت لمبا دبانے پر 2 منٹ کی چھلانگ
-                                    
-                                    delay(150) // ہر 150 ملی سیکنڈ بعد ٹائم اپ ڈیٹ ہوگا
-                                }
-                            }
-                            tryAwaitRelease()
-                            job?.cancel()
-                        },
-                        onTap = {
-                            // نارمل کلک پر صرف ایک سب ٹائٹل آگے یا پیچھے
-                            val list = MainActivity.fullSubtitleList
-                            if (isForward) {
-                                if (currentIndex.intValue < list.size - 1) {
-                                    currentIndex.intValue++
-                                    baseTimeMs.longValue = list[currentIndex.intValue].start - timeOffsetMs.longValue
-                                }
-                            } else {
-                                if (currentIndex.intValue > 0) {
-                                    currentIndex.intValue--
-                                    baseTimeMs.longValue = list[currentIndex.intValue].start - timeOffsetMs.longValue
-                                }
-                            }
+        Box(modifier = Modifier.pointerInput(Unit) {
+            detectTapGestures(
+                onPress = {
+                    job = scope.launch {
+                        var speed = 1000L
+                        var count = 0
+                        while (isActive) {
+                            if (isForward) baseTimeMs.longValue += speed else baseTimeMs.longValue -= speed
+                            updateIndexByTime(baseTimeMs.longValue + timeOffsetMs.longValue)
+                            count++
+                            if (count > 5) speed = 10000L // 5 سیکنڈ بعد 10x سپیڈ
+                            if (count > 15) speed = 60000L // مزید دیر دبانے پر 1 منٹ فی سٹیپ
+                            delay(100)
                         }
-                    )
+                    }
+                    tryAwaitRelease()
+                    job?.cancel()
+                },
+                onTap = {
+                    val list = MainActivity.fullSubtitleList
+                    val totalTime = baseTimeMs.longValue + timeOffsetMs.longValue
+                    if (isForward) {
+                        val next = list.firstOrNull { it.start > totalTime }
+                        if (next != null) baseTimeMs.longValue = next.start - timeOffsetMs.longValue
+                    } else {
+                        val prev = list.lastOrNull { it.end < totalTime - 500 }
+                        if (prev != null) baseTimeMs.longValue = prev.start - timeOffsetMs.longValue
+                    }
+                    updateIndexByTime(baseTimeMs.longValue + timeOffsetMs.longValue)
                 }
-                .padding(8.dp)
-        ) {
-            Icon(icon, null, tint = textCol, modifier = Modifier.size(28.dp))
-        }
+            )
+        }.padding(8.dp)) { Icon(icon, null, tint = textCol, modifier = Modifier.size(28.dp)) }
     }
 
     private fun showFloatingUI() {
@@ -180,20 +204,16 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
         val opac = prefs.getFloat("opacity", 0.8f)
 
         params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT
-        ).apply { 
-            gravity = Gravity.TOP or Gravity.START
-            x = 0; y = 400 
-        }
+        ).apply { gravity = Gravity.TOP or Gravity.START; x = 0; y = 400 }
 
         floatingView = ComposeView(this).apply {
             setViewTreeLifecycleOwner(this@SubtitleService)
             setViewTreeSavedStateRegistryOwner(this@SubtitleService)
             setContent {
-                val font = if (fontPath != null) FontFamily(Font(File(fontPath))) else FontFamily.Default
+                val font = if (fontPath != null && File(fontPath).exists()) FontFamily(Font(File(fontPath))) else FontFamily.Default
                 val idx by currentIndex
                 val active by isPlaying
                 val offset by timeOffsetMs
@@ -201,8 +221,8 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
                 val controlsFolded by isControlsFolded
                 
                 val displayTime = formatTime(baseTime + offset)
-                val currentText = if (MainActivity.fullSubtitleList.isNotEmpty() && idx < MainActivity.fullSubtitleList.size) 
-                    MainActivity.fullSubtitleList[idx].text else "..."
+                val currentText = if (idx != -1 && MainActivity.fullSubtitleList.isNotEmpty()) 
+                    MainActivity.fullSubtitleList[idx].text else ""
 
                 val finalBgColor = if (isBgVisible.value) bgCol.copy(alpha = opac) else Color.Transparent
 
@@ -222,19 +242,9 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
                         
                         if (!controlsFolded) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = displayTime, 
-                                    color = textCol.copy(alpha = 0.8f), 
-                                    fontSize = (18 * clockSize).sp, 
-                                    fontFamily = font
-                                )
+                                Text(text = displayTime, color = textCol.copy(alpha = 0.8f), fontSize = (18 * clockSize).sp, fontFamily = font)
                                 if (offset != 0L) {
-                                    Text(
-                                        text = " (${if(offset>0) "+" else ""}${offset/1000}s)",
-                                        color = Color.Yellow.copy(alpha = 0.7f),
-                                        fontSize = 12.sp,
-                                        modifier = Modifier.padding(start = 4.dp)
-                                    )
+                                    Text(text = " (${if(offset>0) "+" else ""}${offset/1000}s)", color = Color.Yellow.copy(alpha = 0.7f), fontSize = 12.sp, modifier = Modifier.padding(start = 4.dp))
                                 }
                             }
                         }
@@ -249,37 +259,34 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
                         
                         if (!controlsFolded) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                // -1s Sync Button
                                 TextButton(onClick = { timeOffsetMs.longValue -= 1000; updateIndexByTime(baseTimeMs.longValue + timeOffsetMs.longValue) }) {
                                     Text("-1s", color = textCol)
                                 }
-                                
-                                // Backwards Seek Button (With Long Press)
                                 SeekButton(Icons.Default.SkipPrevious, false, textCol)
-
                                 FloatingActionButton(
                                     onClick = { 
                                         isPlaying.value = !isPlaying.value
-                                        if(isPlaying.value) handler.post(ticker) else handler.removeCallbacks(ticker)
+                                        if(isPlaying.value) {
+                                            lastSystemTime = SystemClock.elapsedRealtime()
+                                            handler.post(ticker)
+                                        } else {
+                                            handler.removeCallbacks(ticker)
+                                            lastSystemTime = 0L
+                                        }
                                     }, 
                                     containerColor = Color(0xFFFFD700), shape = CircleShape, modifier = Modifier.size(40.dp)
                                 ) { Icon(if(active) Icons.Default.Pause else Icons.Default.PlayArrow, "", tint = Color.Black) }
-
-                                // Forward Seek Button (With Long Press)
                                 SeekButton(Icons.Default.SkipNext, true, textCol)
-
-                                // +1s Sync Button
                                 TextButton(onClick = { timeOffsetMs.longValue += 1000; updateIndexByTime(baseTimeMs.longValue + timeOffsetMs.longValue) }) {
                                     Text("+1s", color = textCol)
                                 }
                             }
 
-                            Row {
-                                if (offset != 0L) {
-                                    IconButton(onClick = { timeOffsetMs.longValue = 0; updateIndexByTime(baseTimeMs.longValue) }) {
-                                        Icon(Icons.Default.Sync, "Reset Sync", tint = Color.Cyan, modifier = Modifier.size(20.dp))
-                                    }
-                                }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                // فلوٹنگ ونڈو سے ہی فائل اور فونٹ بدلنے کے بٹن
+                                IconButton(onClick = { openFilePicker("srt") }) { Icon(Icons.Default.Add, "SRT", tint = Color.Green) }
+                                IconButton(onClick = { openFilePicker("font") }) { Icon(Icons.Default.TextFields, "Font", tint = Color.Cyan) }
+                                
                                 IconButton(onClick = { isBgVisible.value = !isBgVisible.value }) { 
                                     Icon(if(isBgVisible.value) Icons.Default.Visibility else Icons.Default.VisibilityOff, "", tint = textCol, modifier = Modifier.size(20.dp)) 
                                 }
@@ -291,6 +298,14 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
             }
         }
         windowManager.addView(floatingView, params)
+    }
+
+    private fun openFilePicker(type: String) {
+        val intent = Intent(this, FilePickerActivity::class.java).apply {
+            putExtra("type", type)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        startActivity(intent)
     }
 
     override fun onDestroy() {
