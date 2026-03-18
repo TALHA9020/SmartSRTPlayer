@@ -1,251 +1,85 @@
 package com.smart.srtplayer
 
-import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.Font
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import java.io.BufferedReader
 import java.io.File
-import java.io.FileOutputStream
-import java.io.InputStreamReader
 
 data class SubtitleItem(val start: Long, val end: Long, val text: String)
 
 class MainActivity : ComponentActivity() {
-    
     companion object {
-        var fullSubtitleList = listOf<SubtitleItem>()
-        const val PREFS_NAME = "SRTPlayerPrefs"
+        val fullSubtitleList = mutableListOf<SubtitleItem>()
+        const val PREFS_NAME = "SmartPrefs"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        loadLastSrtIfAvailable()
+        
+        // اگر پہلے سے کوئی فائل لوڈ ہے تو اسے میموری میں لائیں
+        loadLastSrt()
+
         setContent {
-            MaterialTheme {
-                Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFF121212)) {
-                    SRTPlayerMainScreen()
+            Column(modifier = Modifier.padding(20.dp)) {
+                Button(onClick = {
+                    if (!Settings.canDrawOverlays(this@MainActivity)) {
+                        startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+                    } else {
+                        startForegroundService(Intent(this@MainActivity, SubtitleService::class.java))
+                    }
+                }) { Text("Start Floating Subtitles") }
+                
+                Spacer(modifier = Modifier.height(10.dp))
+                
+                Button(onClick = {
+                    stopService(Intent(this@MainActivity, SubtitleService::class.java))
+                }) { Text("Stop Service") }
+            }
+        }
+    }
+
+    private fun loadLastSrt() {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val path = prefs.getString("last_srt_path", null)
+        if (path != null && File(path).exists()) {
+            fullSubtitleList.clear()
+            fullSubtitleList.addAll(parseSrt(File(path).readText()))
+        }
+    }
+
+    private fun parseSrt(content: String): List<SubtitleItem> {
+        val list = mutableListOf<SubtitleItem>()
+        try {
+            val blocks = content.split(Regex("(\\n\\n)|(\\r\\n\\r\\n)"))
+            for (block in blocks) {
+                val lines = block.trim().lines()
+                if (lines.size >= 3) {
+                    val timeRange = lines[1].split(" --> ")
+                    if (timeRange.size == 2) {
+                        list.add(SubtitleItem(
+                            start = timeToMs(timeRange[0]),
+                            end = timeToMs(timeRange[1]),
+                            text = lines.drop(2).joinToString("\n")
+                        ))
+                    }
                 }
             }
-        }
+        } catch (e: Exception) { e.printStackTrace() }
+        return list
     }
 
-    private fun loadLastSrtIfAvailable() {
-        val srtFile = File(filesDir, "last_subtitle.srt")
-        if (srtFile.exists()) {
-            val content = srtFile.readText()
-            fullSubtitleList = parseSrt(content)
-        }
+    private fun timeToMs(time: String): Long {
+        val parts = time.replace(",", ".").split(":")
+        val h = parts[0].trim().toLong() * 3600000
+        val m = parts[1].trim().toLong() * 60000
+        val s = (parts[2].trim().toDouble() * 1000).toLong()
+        return h + m + s
     }
-}
-
-@Composable
-fun SRTPlayerMainScreen() {
-    val context = LocalContext.current
-    val prefs = context.getSharedPreferences(MainActivity.PREFS_NAME, Context.MODE_PRIVATE)
-    
-    var srtPreview by remember { mutableStateOf(if (MainActivity.fullSubtitleList.isNotEmpty()) "SRT فائل لوڈڈ ہے" else "کوئی فائل منتخب نہیں کی گئی") }
-    var fontPath by remember { mutableStateOf(prefs.getString("last_font_path", null)) }
-    
-    var textSize by remember { mutableStateOf(prefs.getFloat("text_size", 1.0f)) }
-    var timerSize by remember { mutableStateOf(prefs.getFloat("timer_size", 0.8f)) }
-    var textColor by remember { mutableStateOf(Color(prefs.getInt("text_color", Color.White.toArgb()))) }
-    var bgColor by remember { mutableStateOf(Color(prefs.getInt("bg_color", Color.Black.toArgb()))) }
-    var opacity by remember { mutableStateOf(prefs.getFloat("opacity", 0.8f)) }
-
-    val srtLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        uri?.let {
-            val rawText = readTextFromUri(context, it)
-            MainActivity.fullSubtitleList = parseSrt(rawText)
-            val file = File(context.filesDir, "last_subtitle.srt")
-            file.writeText(rawText)
-            prefs.edit().putInt("last_index", 0).putLong("last_time_ms", 0L).apply()
-            srtPreview = if (MainActivity.fullSubtitleList.isNotEmpty()) "فائل کامیابی سے لوڈ ہوگئی" else "فائل غلط ہے"
-        }
-    }
-
-    val fontLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        uri?.let {
-            val file = copyFileToInternalStorage(context, it, "my_font.ttf")
-            fontPath = file.absolutePath
-            prefs.edit().putString("last_font_path", fontPath).apply()
-            Toast.makeText(context, "فونٹ محفوظ ہوگیا", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    fun saveSettings() {
-        prefs.edit().apply {
-            putFloat("text_size", textSize)
-            putFloat("timer_size", timerSize)
-            putInt("text_color", textColor.toArgb())
-            putInt("bg_color", bgColor.toArgb())
-            putFloat("opacity", opacity)
-            apply()
-        }
-    }
-
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
-        horizontalAlignment = Alignment.CenterHorizontally) {
-        
-        Text("Smart SRT Player", fontSize = 28.sp, color = Color(0xFFFFD700), modifier = Modifier.padding(10.dp))
-
-        val previewFont = if (fontPath != null) FontFamily(Font(File(fontPath!!))) else FontFamily.Default
-        Box(modifier = Modifier.fillMaxWidth().height(110.dp)
-            .background(bgColor.copy(alpha = opacity), RoundedCornerShape(12.dp)),
-            contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("00:45", color = textColor.copy(alpha = 0.6f), fontSize = (18 * timerSize).sp, fontFamily = previewFont)
-                Text(text = srtPreview, color = textColor, fontSize = (20 * textSize).sp, fontFamily = previewFont)
-            }
-        }
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            Button(onClick = { srtLauncher.launch("*/*") }, modifier = Modifier.weight(1f)) { Text("1. Select SRT") }
-            Spacer(modifier = Modifier.width(10.dp))
-            Button(onClick = { fontLauncher.launch("*/*") }, modifier = Modifier.weight(1f)) { Text("2. Select Font") }
-        }
-
-        Spacer(modifier = Modifier.height(20.dp))
-        // یہاں ہم نے Divider استعمال کیا ہے
-        Divider(color = Color.Gray, thickness = 0.5.dp)
-        Spacer(modifier = Modifier.height(15.dp))
-
-        Text("Player Customization", fontSize = 18.sp, color = Color.White, modifier = Modifier.align(Alignment.Start))
-        
-        SettingSlider(label = "Subtitle Text Size", value = textSize, onValueChange = { textSize = it; saveSettings() }, range = 0.5f..2.0f)
-        SettingSlider(label = "Timer Clock Size", value = timerSize, onValueChange = { timerSize = it; saveSettings() }, range = 0.4f..1.5f)
-        SettingSlider(label = "Background Opacity", value = opacity, onValueChange = { opacity = it; saveSettings() }, range = 0.0f..1.0f)
-
-        ColorPickerRow(label = "Text Color", selectedColor = textColor, onColorSelected = { textColor = it; saveSettings() },
-            colors = listOf(Color.White, Color.Yellow, Color.Cyan, Color.Green))
-        
-        ColorPickerRow(label = "Background Color", selectedColor = bgColor, onColorSelected = { bgColor = it; saveSettings() },
-            colors = listOf(Color.Black, Color.DarkGray, Color.Blue, Color(0xFF330000)))
-
-        Spacer(modifier = Modifier.height(30.dp))
-        
-        Button(
-            onClick = {
-                if (checkOverlayPermission(context)) {
-                    saveSettings()
-                    val intent = Intent(context, SubtitleService::class.java)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
-                    else context.startService(intent)
-                }
-            },
-            modifier = Modifier.fillMaxWidth().height(60.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF8F00))
-        ) {
-            Text("3. Launch Floating Player", fontSize = 18.sp, color = Color.Black)
-        }
-    }
-}
-
-@Composable
-fun SettingSlider(label: String, value: Float, onValueChange: (Float) -> Unit, range: ClosedFloatingPointRange<Float>) {
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(label, color = Color.LightGray, fontSize = 14.sp)
-            Text("%.1f".format(value), color = Color.White)
-        }
-        Slider(value = value, onValueChange = onValueChange, valueRange = range,
-            colors = SliderDefaults.colors(thumbColor = Color(0xFFFFD700), activeTrackColor = Color(0xFFFFD700)))
-    }
-}
-
-@Composable
-fun ColorPickerRow(label: String, selectedColor: Color, onColorSelected: (Color) -> Unit, colors: List<Color>) {
-    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, color = Color.LightGray, fontSize = 14.sp)
-        Row {
-            colors.forEach { color ->
-                Box(modifier = Modifier.size(32.dp).padding(4.dp)
-                    .background(color, CircleShape)
-                    .clickable { onColorSelected(color) }
-                    .then(if (color == selectedColor) Modifier.background(Color.White.copy(0.3f), CircleShape) else Modifier))
-            }
-        }
-    }
-}
-
-fun readTextFromUri(context: Context, uri: Uri): String {
-    val sb = StringBuilder()
-    context.contentResolver.openInputStream(uri)?.use { stream ->
-        BufferedReader(InputStreamReader(stream)).use { reader ->
-            var line: String?
-            while (reader.readLine().also { line = it } != null) sb.append(line).append("\n")
-        }
-    }
-    return sb.toString()
-}
-
-fun parseSrt(content: String): List<SubtitleItem> {
-    val list = mutableListOf<SubtitleItem>()
-    val blocks = content.split(Regex("(\\r?\\n){2,}"))
-    val timeRegex = Regex("(\\d{2}:\\d{2}:\\d{2},\\d{3}) --> (\\d{2}:\\d{2}:\\d{2},\\d{3})")
-    
-    for (block in blocks) {
-        val lines = block.trim().lines()
-        if (lines.size >= 2) {
-            val timeLine = lines.find { it.contains("-->") } ?: continue
-            val match = timeRegex.find(timeLine)
-            if (match != null) {
-                val timeIdx = lines.indexOf(timeLine)
-                val textLines = lines.drop(timeIdx + 1)
-                list.add(SubtitleItem(
-                    parseTimeToMs(match.groupValues[1]),
-                    parseTimeToMs(match.groupValues[2]),
-                    textLines.joinToString("\n")
-                ))
-            }
-        }
-    }
-    return list
-}
-
-fun parseTimeToMs(time: String): Long {
-    val p = time.replace(',', ':').split(":")
-    return p[0].toLong()*3600000 + p[1].toLong()*60000 + p[2].toLong()*1000 + p[3].toLong()
-}
-
-fun copyFileToInternalStorage(context: Context, uri: Uri, name: String): File {
-    val file = File(context.filesDir, name)
-    context.contentResolver.openInputStream(uri)?.use { i -> FileOutputStream(file).use { o -> i.copyTo(o) } }
-    return file
-}
-
-fun checkOverlayPermission(context: Context): Boolean {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
-        context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")))
-        return false
-    }
-    return true
 }
