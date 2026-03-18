@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.text.font.*
@@ -48,7 +49,6 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
     private var baseTimeMs = mutableLongStateOf(0L)
     private var timeOffsetMs = mutableLongStateOf(0L)
     
-    // ٹائمر کی درستی کے لیے
     private var lastSystemTime = 0L
 
     private val handler = Handler(Looper.getMainLooper())
@@ -73,7 +73,6 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
 
     private fun updateIndexByTime(totalTime: Long) {
         val list = MainActivity.fullSubtitleList
-        // صرف وہ ٹیکسٹ دکھائیں جو اس وقت کے اندر آتا ہو
         val foundIndex = list.indexOfFirst { totalTime >= it.start && totalTime <= it.end }
         currentIndex.intValue = foundIndex 
     }
@@ -85,17 +84,19 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         
-        // سیو شدہ ڈیٹا لوڈ کریں
         val prefs = getSharedPreferences(MainActivity.PREFS_NAME, Context.MODE_PRIVATE)
         baseTimeMs.longValue = prefs.getLong("last_time_ms", 0L)
         timeOffsetMs.longValue = prefs.getLong("last_offset_ms", 0L)
         
-        // اگر سروس ری سٹارٹ ہوئی ہے تو سب ٹائٹلز دوبارہ لوڈ کرنے کی ضرورت پڑ سکتی ہے
+        // لوڈ کرنے کی منطق اگر سروس دوبارہ شروع ہو
         if (MainActivity.fullSubtitleList.isEmpty()) {
             val srtPath = prefs.getString("last_srt_path", null)
             srtPath?.let { 
                 MainActivity.fullSubtitleList.clear()
-                MainActivity.fullSubtitleList.addAll(parseSrt(File(it).readText())) 
+                val file = File(it)
+                if (file.exists()) {
+                    MainActivity.fullSubtitleList.addAll(parseSrt(file.readText())) 
+                }
             }
         }
 
@@ -105,20 +106,22 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
 
     private fun parseSrt(content: String): List<SubtitleItem> {
         val list = mutableListOf<SubtitleItem>()
-        val blocks = content.split(Regex("(\\n\\n)|(\\r\\n\\r\\n)"))
-        for (block in blocks) {
-            val lines = block.trim().lines()
-            if (lines.size >= 3) {
-                val timeRange = lines[1].split(" --> ")
-                if (timeRange.size == 2) {
-                    list.add(SubtitleItem(
-                        start = timeToMs(timeRange[0]),
-                        end = timeToMs(timeRange[1]),
-                        text = lines.drop(2).joinToString("\n")
-                    ))
+        try {
+            val blocks = content.split(Regex("(\\n\\n)|(\\r\\n\\r\\n)"))
+            for (block in blocks) {
+                val lines = block.trim().lines()
+                if (lines.size >= 3) {
+                    val timeRange = lines[1].split(" --> ")
+                    if (timeRange.size == 2) {
+                        list.add(SubtitleItem(
+                            start = timeToMs(timeRange[0]),
+                            end = timeToMs(timeRange[1]),
+                            text = lines.drop(2).joinToString("\n")
+                        ))
+                    }
                 }
             }
-        }
+        } catch (e: Exception) { e.printStackTrace() }
         return list
     }
 
@@ -156,7 +159,7 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
     }
 
     @Composable
-    fun SeekButton(icon: androidx.compose.ui.graphics.vector.ImageVector, isForward: Boolean, textCol: Color) {
+    fun SeekButton(icon: ImageVector, isForward: Boolean, textCol: Color) {
         val scope = rememberCoroutineScope()
         var job by remember { mutableStateOf<Job?>(null) }
 
@@ -170,8 +173,8 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
                             if (isForward) baseTimeMs.longValue += speed else baseTimeMs.longValue -= speed
                             updateIndexByTime(baseTimeMs.longValue + timeOffsetMs.longValue)
                             count++
-                            if (count > 5) speed = 10000L // 5 سیکنڈ بعد 10x سپیڈ
-                            if (count > 15) speed = 60000L // مزید دیر دبانے پر 1 منٹ فی سٹیپ
+                            if (count > 5) speed = 10000L 
+                            if (count > 15) speed = 60000L 
                             delay(100)
                         }
                     }
@@ -192,6 +195,20 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
                 }
             )
         }.padding(8.dp)) { Icon(icon, null, tint = textCol, modifier = Modifier.size(28.dp)) }
+    }
+
+    // فائل ایڈ کرنے کے لیے کسٹم بٹن (واضح نشانی کے ساتھ)
+    @Composable
+    fun FileAddButton(icon: ImageVector, label: String, activeColor: Color, textColor: Color, onClick: () -> Unit) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .clickable(onClick = onClick)
+                .padding(8.dp)
+        ) {
+            Icon(icon, contentDescription = label, tint = activeColor, modifier = Modifier.size(24.dp))
+            Text(label, color = activeColor, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        }
     }
 
     private fun showFloatingUI() {
@@ -258,6 +275,7 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
                         )
                         
                         if (!controlsFolded) {
+                            // سنک اور سیک کنٹرولز
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 TextButton(onClick = { timeOffsetMs.longValue -= 1000; updateIndexByTime(baseTimeMs.longValue + timeOffsetMs.longValue) }) {
                                     Text("-1s", color = textCol)
@@ -282,15 +300,26 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
                                 }
                             }
 
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // فائل ایڈ کرنے کے بٹنز (واضح نشانیوں کے ساتھ)
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                // فلوٹنگ ونڈو سے ہی فائل اور فونٹ بدلنے کے بٹن
-                                IconButton(onClick = { openFilePicker("srt") }) { Icon(Icons.Default.Add, "SRT", tint = Color.Green) }
-                                IconButton(onClick = { openFilePicker("font") }) { Icon(Icons.Default.TextFields, "Font", tint = Color.Cyan) }
                                 
+                                // سب ٹائٹل ایڈ کرنے کا بٹن (سبز رنگ)
+                                FileAddButton(Icons.Default.NoteAdd, "SRT", Color(0xFFC8E6C9), textCol) { openFilePicker("srt") }
+                                
+                                Spacer(modifier = Modifier.width(16.dp))
+                                
+                                // فونٹ ایڈ کرنے کا بٹن (نیلا رنگ)
+                                FileAddButton(Icons.Default.TextFields, "Font", Color(0xFFB3E5FC), textCol) { openFilePicker("font") }
+                                
+                                Spacer(modifier = Modifier.width(16.dp))
+                                
+                                // باقی کنٹرولز
                                 IconButton(onClick = { isBgVisible.value = !isBgVisible.value }) { 
-                                    Icon(if(isBgVisible.value) Icons.Default.Visibility else Icons.Default.VisibilityOff, "", tint = textCol, modifier = Modifier.size(20.dp)) 
+                                    Icon(if(isBgVisible.value) Icons.Default.Visibility else Icons.Default.VisibilityOff, "", tint = textCol.copy(alpha = 0.6f), modifier = Modifier.size(20.dp)) 
                                 }
-                                IconButton(onClick = { stopSelf() }) { Icon(Icons.Default.Close, "", tint = Color.Red, modifier = Modifier.size(20.dp)) }
+                                IconButton(onClick = { stopSelf() }) { Icon(Icons.Default.Close, "", tint = Color.Red.copy(alpha = 0.6f), modifier = Modifier.size(20.dp)) }
                             }
                         }
                     }
