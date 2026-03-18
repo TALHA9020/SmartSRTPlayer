@@ -1,4 +1,4 @@
-package com.smart.whiteboard
+package com.smart.srtplayer // نیا پیکج نام
 
 import android.app.*
 import android.content.*
@@ -48,7 +48,6 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
                 currentTimeMs += 100
                 val list = MainActivity.fullSubtitleList
                 
-                // وقت کے مطابق سب ٹائٹل تلاش کریں
                 val foundIndex = list.indexOfFirst { currentTimeMs >= it.start && currentTimeMs <= it.end }
                 if (foundIndex != -1 && foundIndex != currentIndex.intValue) {
                     currentIndex.intValue = foundIndex
@@ -70,7 +69,10 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
     private fun startMyForeground() {
         val chan = NotificationChannel("sub_chan", "Subtitles", NotificationManager.IMPORTANCE_LOW)
         (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(chan)
-        startForeground(1, NotificationCompat.Builder(this, "sub_chan").setContentTitle("Subtitle Active").setSmallIcon(android.R.drawable.ic_media_play).build())
+        startForeground(1, NotificationCompat.Builder(this, "sub_chan")
+            .setContentTitle("Smart SRT Player Active")
+            .setSmallIcon(android.R.drawable.ic_media_play)
+            .build())
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -94,13 +96,15 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
                 val font = if (fontPath != null) FontFamily(Font(File(fontPath))) else FontFamily.Default
                 val idx by currentIndex
                 val active by isPlaying
-                val currentText = if (MainActivity.fullSubtitleList.isNotEmpty()) MainActivity.fullSubtitleList[idx].text else "خالی"
+                val currentText = if (MainActivity.fullSubtitleList.isNotEmpty()) MainActivity.fullSubtitleList[idx].text else "انتظار کریں..."
 
-                Column(modifier = Modifier.fillMaxWidth().padding(10.dp).background(Color.Black.copy(0.8f), RoundedCornerShape(20.dp)).padding(10.dp),
+                Column(modifier = Modifier.fillMaxWidth().padding(10.dp).background(Color.Black.copy(0.85f), RoundedCornerShape(20.dp)).padding(15.dp),
                     horizontalAlignment = Alignment.CenterHorizontally) {
                     
                     Text(text = currentText, color = Color.White, fontSize = 22.sp, fontFamily = font, textAlign = TextAlign.Center)
                     
+                    Spacer(modifier = Modifier.height(10.dp))
+
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
                         IconButton(onClick = { if(currentIndex.intValue > 0) { 
                             currentIndex.intValue-- 
@@ -110,7 +114,7 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
                         FloatingActionButton(onClick = { 
                             isPlaying.value = !isPlaying.value
                             if(isPlaying.value) handler.post(ticker) else handler.removeCallbacks(ticker)
-                        }, containerColor = Color.Yellow, shape = CircleShape, modifier = Modifier.size(45.dp)) {
+                        }, containerColor = Color(0xFFFFD700), shape = CircleShape, modifier = Modifier.size(50.dp)) {
                             Icon(if(active) Icons.Default.Pause else Icons.Default.PlayArrow, "", tint = Color.Black)
                         }
 
@@ -118,6 +122,8 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
                             currentIndex.intValue++
                             currentTimeMs = MainActivity.fullSubtitleList[currentIndex.intValue].start
                         }}) { Icon(Icons.Default.SkipNext, "", tint = Color.White) }
+                        
+                        Spacer(modifier = Modifier.width(10.dp))
                         
                         IconButton(onClick = { stopSelf() }) { Icon(Icons.Default.Close, "", tint = Color.Red) }
                     }
@@ -130,8 +136,11 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
             override fun onTouch(v: View?, e: MotionEvent): Boolean {
                 when (e.action) {
                     MotionEvent.ACTION_DOWN -> { initialY = params.y; initialTouchY = e.rawY; return true }
-                    MotionEvent.ACTION_MOVE -> { params.y = initialY - (e.rawY - initialTouchY).toInt()
-                        windowManager.updateViewLayout(floatingView, params); return true }
+                    MotionEvent.ACTION_MOVE -> { 
+                        params.y = initialY - (e.rawY - initialTouchY).toInt()
+                        windowManager.updateViewLayout(floatingView, params)
+                        return true 
+                    }
                 }
                 return false
             }
@@ -141,7 +150,9 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
 
     override fun onDestroy() {
         handler.removeCallbacks(ticker)
-        floatingView?.let { windowManager.removeView(it) }
+        floatingView?.let { 
+            if (it.isAttachedToWindow) windowManager.removeView(it) 
+        }
         super.onDestroy()
     }
 
