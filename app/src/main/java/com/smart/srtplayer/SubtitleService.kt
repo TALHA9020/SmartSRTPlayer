@@ -6,7 +6,7 @@ import android.graphics.PixelFormat
 import android.os.*
 import android.view.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -17,15 +17,19 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.text.font.*
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.*
 import androidx.savedstate.*
 import java.io.File
+import kotlin.math.roundToInt
 
 class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
 
@@ -38,24 +42,27 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
     override val lifecycle: Lifecycle get() = lifecycleRegistry
     override val savedStateRegistry: SavedStateRegistry get() = savedStateRegistryController.savedStateRegistry
 
-    // پلیئر سٹیٹس
     private var currentIndex = mutableIntStateOf(0)
     private var isPlaying = mutableStateOf(false)
     private var currentTimeMs = 0L
     private val handler = Handler(Looper.getMainLooper())
 
-    // *** فلوٹنگ ونڈو کی نئی سٹیٹس ***
-    private var isBgVisible = mutableStateOf(true) // بیک گراؤنڈ دکھانا ہے یا نہیں
-    private var isControlsFolded = mutableStateOf(false) // کنٹرولز فولڈ کرنے ہیں یا نہیں
+    private var isBgVisible = mutableStateOf(true)
+    private var isControlsFolded = mutableStateOf(false)
 
     private val ticker = object : Runnable {
         override fun run() {
             if (isPlaying.value && MainActivity.fullSubtitleList.isNotEmpty()) {
                 currentTimeMs += 100
                 val list = MainActivity.fullSubtitleList
-                val foundIndex = list.indexOfFirst { currentTimeMs >= it.start && currentTimeMs <= it.end }
-                if (foundIndex != -1 && foundIndex != currentIndex.intValue) {
-                    currentIndex.intValue = foundIndex
+                
+                if (currentIndex.intValue < list.size) {
+                    // Check if current subtitle ended or next one started
+                    val foundIndex = list.indexOfFirst { currentTimeMs >= it.start && currentTimeMs <= it.end }
+                    if (foundIndex != -1 && foundIndex != currentIndex.intValue) {
+                        currentIndex.intValue = foundIndex
+                        saveProgress() // ہر سب ٹائٹل پر پروگریس سیو کریں
+                    }
                 }
                 handler.postDelayed(this, 100)
             }
@@ -68,7 +75,21 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        
+        // لوڈ کریں کہ کہاں چھوڑا تھا
+        val prefs = getSharedPreferences(MainActivity.PREFS_NAME, Context.MODE_PRIVATE)
+        currentIndex.intValue = prefs.getInt("last_index", 0)
+        if (MainActivity.fullSubtitleList.isNotEmpty() && currentIndex.intValue < MainActivity.fullSubtitleList.size) {
+            currentTimeMs = MainActivity.fullSubtitleList[currentIndex.intValue].start
+        }
+        
         startMyForeground()
+        showFloatingUI()
+    }
+
+    private fun saveProgress() {
+        val prefs = getSharedPreferences(MainActivity.PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putInt("last_index", currentIndex.intValue).apply()
     }
 
     private fun startMyForeground() {
@@ -80,27 +101,24 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
             .build())
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val fontPath = intent?.getStringExtra("font_path")
-        showFloatingUI(fontPath)
-        return START_STICKY
-    }
-
-    private fun showFloatingUI(fontPath: String?) {
-        if (floatingView != null) return
-
-        // مین ایپ سے سیٹنگز لوڈ کریں
+    private fun showFloatingUI() {
         val prefs = getSharedPreferences(MainActivity.PREFS_NAME, Context.MODE_PRIVATE)
+        val fontPath = prefs.getString("last_font_path", null)
         val windowSizeMultiplier = prefs.getFloat("window_size", 1.0f)
         val textCol = Color(prefs.getInt("text_color", Color.White.toArgb()))
         val bgCol = Color(prefs.getInt("bg_color", Color.Black.toArgb()))
         val opac = prefs.getFloat("opacity", 0.8f)
 
         params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT, // تبدیل شدہ: میچ پیرنٹ کے بجائے ریپ کنٹینٹ
+            WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.BOTTOM; y = 150 }
+        ).apply { 
+            gravity = Gravity.TOP or Gravity.START
+            x = 0
+            y = 500 
+        }
 
         floatingView = ComposeView(this).apply {
             setViewTreeLifecycleOwner(this@SubtitleService)
@@ -111,99 +129,84 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
                 val active by isPlaying
                 val bgVisible by isBgVisible
                 val controlsFolded by isControlsFolded
-                val currentText = if (MainActivity.fullSubtitleList.isNotEmpty()) MainActivity.fullSubtitleList[idx].text else "انتظار کریں..."
+                
+                val currentText = if (MainActivity.fullSubtitleList.isNotEmpty() && idx < MainActivity.fullSubtitleList.size) 
+                    MainActivity.fullSubtitleList[idx].text else "ختم یا خالی"
 
-                // مین کنٹینر کا ڈیزائن سیٹنگز کے مطابق
                 val finalBgColor = if (bgVisible) bgCol.copy(alpha = opac) else Color.Transparent
-                val finalPadding = (10 * windowSizeMultiplier).dp
 
-                Column(modifier = Modifier.fillMaxWidth().padding(finalPadding)
-                    .background(finalBgColor, RoundedCornerShape(20.dp)).padding(finalPadding),
-                    horizontalAlignment = Alignment.CenterHorizontally) {
-                    
-                    // 1. سب ٹائٹل ٹیکسٹ (سائز ایڈجسٹمنٹ کے ساتھ)
-                    Text(text = currentText, color = textCol, fontSize = (22 * windowSizeMultiplier).sp, 
-                        fontFamily = font, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(bottom = 5.dp))
-                    
-                    // 2. کنٹرولز کا حصہ (فولڈ/ان فولڈ لوجک کے ساتھ)
-                    if (!controlsFolded) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-                            // پریویئس بٹن
-                            IconButton(onClick = { if(currentIndex.intValue > 0) { 
-                                currentIndex.intValue-- 
-                                currentTimeMs = MainActivity.fullSubtitleList[currentIndex.intValue].start
-                            }}) { Icon(Icons.Default.SkipPrevious, "", tint = textCol) }
-
-                            // پلے/پاز بٹن
-                            FloatingActionButton(onClick = { 
-                                isPlaying.value = !isPlaying.value
-                                if(isPlaying.value) handler.post(ticker) else handler.removeCallbacks(ticker)
-                            }, containerColor = Color(0xFFFFD700), shape = CircleShape, modifier = Modifier.size(50.dp)) {
-                                Icon(if(active) Icons.Default.Pause else Icons.Default.PlayArrow, "", tint = Color.Black)
-                            }
-
-                            // نیکسٹ بٹن
-                            IconButton(onClick = { if(currentIndex.intValue < MainActivity.fullSubtitleList.size - 1) {
-                                currentIndex.intValue++
-                                currentTimeMs = MainActivity.fullSubtitleList[currentIndex.intValue].start
-                            }}) { Icon(Icons.Default.SkipNext, "", tint = textCol) }
-                            
-                            Spacer(modifier = Modifier.width(15.dp))
-                            
-                            // *** نئے فنکشنل بٹنز ***
-                            
-                            // A. بیک گراؤنڈ غائب/ظاہر کرنے کا بٹن
-                            IconButton(onClick = { isBgVisible.value = !isBgVisible.value }) { 
-                                Icon(if(bgVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff, "", tint = textCol) 
-                            }
-                            
-                            // B. کلوز بٹن
-                            IconButton(onClick = { stopSelf() }) { Icon(Icons.Default.Close, "", tint = Color.Red) }
+                // مین ڈریگ ایبل باکس
+                Box(modifier = Modifier
+                    .pointerInput(Unit) {
+                        detectDragGestures { change, dragAmount ->
+                            change.consume()
+                            params.x += dragAmount.x.toInt()
+                            params.y += dragAmount.y.toInt()
+                            windowManager.updateViewLayout(floatingView, params)
                         }
-                    } else {
-                        // فولڈ شدہ حالت میں صرف ایک چھوٹا "ان فولڈ" نشان
-                        Icon(Icons.Default.KeyboardArrowUp, "", tint = textCol.copy(alpha = 0.5f), 
-                            modifier = Modifier.size(20.dp).padding(top = 2.dp))
+                    }
+                    .background(finalBgColor, RoundedCornerShape(16.dp))
+                    .padding(if (controlsFolded) 8.dp else 12.dp)
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.width(IntrinsicSize.Min).padding(horizontal = 10.dp)
+                    ) {
+                        // سب ٹائٹل ٹیکسٹ
+                        Text(
+                            text = currentText, 
+                            color = textCol, 
+                            fontSize = (22 * windowSizeMultiplier).sp, 
+                            fontFamily = font, 
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.clickable { isControlsFolded.value = !isControlsFolded.value }
+                        )
+                        
+                        if (!controlsFolded) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = { if(currentIndex.intValue > 0) { 
+                                    currentIndex.intValue-- 
+                                    currentTimeMs = MainActivity.fullSubtitleList[currentIndex.intValue].start
+                                    saveProgress()
+                                }}) { Icon(Icons.Default.SkipPrevious, "", tint = textCol, modifier = Modifier.size(20.dp)) }
+
+                                FloatingActionButton(
+                                    onClick = { 
+                                        isPlaying.value = !isPlaying.value
+                                        if(isPlaying.value) handler.post(ticker) else handler.removeCallbacks(ticker)
+                                    }, 
+                                    containerColor = Color(0xFFFFD700), 
+                                    shape = CircleShape, 
+                                    modifier = Modifier.size(40.dp)
+                                ) {
+                                    Icon(if(active) Icons.Default.Pause else Icons.Default.PlayArrow, "", tint = Color.Black)
+                                }
+
+                                IconButton(onClick = { if(currentIndex.intValue < MainActivity.fullSubtitleList.size - 1) {
+                                    currentIndex.intValue++
+                                    currentTimeMs = MainActivity.fullSubtitleList[currentIndex.intValue].start
+                                    saveProgress()
+                                }}) { Icon(Icons.Default.SkipNext, "", tint = textCol, modifier = Modifier.size(20.dp)) }
+                                
+                                IconButton(onClick = { isBgVisible.value = !isBgVisible.value }) { 
+                                    Icon(if(bgVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff, "", tint = textCol, modifier = Modifier.size(20.dp)) 
+                                }
+                                
+                                IconButton(onClick = { stopSelf() }) { Icon(Icons.Default.Close, "", tint = Color.Red, modifier = Modifier.size(20.dp)) }
+                            }
+                        }
                     }
                 }
             }
         }
-
-        // ٹچ اور فولڈ/ایکسپینڈ لوجک
-        floatingView?.setOnTouchListener(object : View.OnTouchListener {
-            private var initialY = 0; private var initialTouchY = 0f
-            private var gestureDetector = GestureDetector(this@SubtitleService, object : GestureDetector.SimpleOnGestureListener() {
-                // ڈبل ٹیپ پر کنٹرولز کو فولڈ یا ایکسپینڈ کریں
-                override fun onDoubleTap(e: MotionEvent): Boolean {
-                    isControlsFolded.value = !isControlsFolded.value
-                    return true
-                }
-            })
-
-            override fun onTouch(v: View?, e: MotionEvent): Boolean {
-                gestureDetector.onTouchEvent(e) // ڈبل ٹیپ چیک کریں
-                
-                when (e.action) {
-                    MotionEvent.ACTION_DOWN -> { initialY = params.y; initialTouchY = e.rawY; return true }
-                    MotionEvent.ACTION_MOVE -> { 
-                        params.y = initialY - (e.rawY - initialTouchY).toInt()
-                        windowManager.updateViewLayout(floatingView, params)
-                        return true 
-                    }
-                }
-                return false
-            }
-        })
         windowManager.addView(floatingView, params)
     }
 
     override fun onDestroy() {
         handler.removeCallbacks(ticker)
-        floatingView?.let { 
-            if (it.isAttachedToWindow) windowManager.removeView(it) 
-        }
+        saveProgress()
+        floatingView?.let { if (it.isAttachedToWindow) windowManager.removeView(it) }
         super.onDestroy()
     }
 
