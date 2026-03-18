@@ -14,7 +14,9 @@ import android.widget.TextView
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.app.NotificationCompat
-import com.smart.srtplayer.R  // یہ لائن تمام ایررز ختم کر دے گی
+
+// اگر اوپر والا امپورٹ کام نہیں کر رہا تو ہم براہ راست ریفرنس استعمال کریں گے
+typealias SubR = com.smart.srtplayer.R
 
 class SubtitleService : Service() {
 
@@ -41,29 +43,33 @@ class SubtitleService : Service() {
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         val inflater = getSystemService(LAYOUT_INFLATER_SERVICE) as LayoutInflater
         
-        // یہاں R.layout اب کام کرے گا
-        floatingView = inflater.inflate(R.layout.overlay_layout, null)
+        try {
+            // ہم نے یہاں SubR استعمال کیا ہے تاکہ امپورٹ کا مسئلہ نہ ہو
+            floatingView = inflater.inflate(SubR.layout.overlay_layout, null)
 
-        val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-            PixelFormat.TRANSLUCENT
-        )
-        params.gravity = Gravity.TOP
-        windowManager.addView(floatingView, params)
-        updateUIFromPrefs()
-        startSubtitleTimer()
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                PixelFormat.TRANSLUCENT
+            )
+            params.gravity = Gravity.TOP
+            windowManager.addView(floatingView, params)
+            updateUIFromPrefs()
+            startSubtitleTimer()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            stopSelf()
+        }
     }
 
     private fun updateUIFromPrefs() {
         val prefs = getSharedPreferences("SmartPrefs", MODE_PRIVATE)
         floatingView?.let { view ->
-            // یہاں R.id اب کام کریں گے
-            val container = view.findViewById<FrameLayout>(R.id.subtitle_container)
-            val textSub = view.findViewById<TextView>(R.id.subtitle_text)
-            val textTimer = view.findViewById<TextView>(R.id.timer_text)
+            val container = view.findViewById<FrameLayout>(SubR.id.subtitle_container)
+            val textSub = view.findViewById<TextView>(SubR.id.subtitle_text)
+            val textTimer = view.findViewById<TextView>(SubR.id.timer_text)
 
             val textSize = prefs.getFloat("text_size", 1.0f)
             val timerSize = prefs.getFloat("timer_size", 0.8f)
@@ -98,8 +104,8 @@ class SubtitleService : Service() {
                 }
 
                 floatingView?.let { view ->
-                    view.findViewById<TextView>(R.id.subtitle_text).text = currentSub?.text ?: ""
-                    view.findViewById<TextView>(R.id.timer_text).text = formatTime(elapsed)
+                    view.findViewById<TextView>(SubR.id.subtitle_text).text = currentSub?.text ?: ""
+                    view.findViewById<TextView>(SubR.id.timer_text).text = formatTime(elapsed)
                 }
                 handler.postDelayed(this, 100)
             }
