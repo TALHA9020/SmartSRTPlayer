@@ -1,35 +1,52 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/subtitle_container"
-    android:layout_width="match_parent"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root_layout"
+    android:layout_width="wrap_content"
     android:layout_height="wrap_content"
-    android:background="#CC000000"
-    android:padding="12dp">
+    android:orientation="vertical"
+    android:gravity="center"
+    android:padding="5dp">
 
+    <!-- کنٹرول بٹنز (صرف تب نظر آئیں گے جب یوزر چاہے) -->
     <LinearLayout
-        android:layout_width="match_parent"
+        android:id="@+id/controls_layout"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:background="#AA000000"
+        android:orientation="horizontal"
+        android:visibility="gone"
+        android:padding="4dp">
+        <ImageButton android:id="@+id/btn_pick_srt" android:layout_width="35dp" android:layout_height="35dp" android:src="@android:drawable/ic_menu_save" android:background="?android:attr/selectableItemBackground" android:contentDescription="SRT" />
+        <ImageButton android:id="@+id/btn_pick_font" android:layout_width="35dp" android:layout_height="35dp" android:src="@android:drawable/ic_menu_edit" android:background="?android:attr/selectableItemBackground" android:contentDescription="Font" />
+        <ImageButton android:id="@+id/btn_play_pause" android:layout_width="35dp" android:layout_height="35dp" android:src="@android:drawable/ic_media_play" android:background="?android:attr/selectableItemBackground" />
+        <ImageButton android:id="@+id/btn_close" android:layout_width="35dp" android:layout_height="35dp" android:src="@android:drawable/ic_menu_close_clear_cancel" android:background="?android:attr/selectableItemBackground" />
+    </LinearLayout>
+
+    <!-- سب ٹائٹل بکس (یہ خود بخود ٹیکسٹ کے مطابق پھیلے گا) -->
+    <LinearLayout
+        android:id="@+id/subtitle_container"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:gravity="center">
+        android:gravity="center"
+        android:padding="10dp"
+        android:background="#CC000000">
 
         <TextView
             android:id="@+id/timer_text"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="00:00:00"
             android:textColor="#FFFFFF"
             android:textSize="12sp"
-            android:alpha="0.7" />
+            android:visibility="gone" />
 
         <TextView
             android:id="@+id/subtitle_text"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="سب ٹائٹل یہاں نظر آئے گا"
+            android:text=""
             android:textColor="#FFFFFF"
-            android:textSize="18sp"
-            android:textAlignment="center"
-            android:layout_marginTop="4dp" />
-
+            android:textSize="20sp"
+            android:textAlignment="center" />
     </LinearLayout>
-</FrameLayout>
+</LinearLayout>
