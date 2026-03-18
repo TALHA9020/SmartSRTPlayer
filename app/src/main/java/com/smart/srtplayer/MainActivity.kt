@@ -20,6 +20,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.io.File
 
+data class SubtitleItem(val start: Long, val end: Long, val text: String)
+
 class MainActivity : ComponentActivity() {
     companion object {
         val fullSubtitleList = mutableListOf<SubtitleItem>()
@@ -53,8 +55,12 @@ class MainActivity : ComponentActivity() {
         }
 
         private fun timeToMs(time: String): Long {
-            val parts = time.replace(",", ".").split(":")
-            return (parts[0].trim().toLong() * 3600000) + (parts[1].trim().toLong() * 60000) + (parts[2].trim().toDouble() * 1000).toLong()
+            return try {
+                val parts = time.replace(",", ".").split(":")
+                (parts[0].trim().toLong() * 3600000) + 
+                (parts[1].trim().toLong() * 60000) + 
+                (parts[2].trim().toDouble() * 1000).toLong()
+            } catch (e: Exception) { 0L }
         }
     }
 
@@ -70,44 +76,85 @@ class MainActivity : ComponentActivity() {
             var textColor by remember { mutableIntStateOf(prefs.getInt("text_color", Color.White.toArgb())) }
 
             Column(modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
-                Text("Smart SRT Settings", style = MaterialTheme.typography.headlineMedium)
+                Text("Smart SRT Settings", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.primary)
                 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(16.dp))
                 
-                // پری ویو
-                Box(modifier = Modifier.fillMaxWidth().height(120.dp).background(Color.DarkGray.copy(0.1f)), contentAlignment = Alignment.Center) {
-                    Box(modifier = Modifier.wrapContentSize().background(Color(bgColor).copy(opacity), RoundedCornerShape(4.dp)).padding(10.dp)) {
-                        Text("اردو سب ٹائٹل نمونہ", color = Color(textColor), fontSize = textSize.sp)
+                // لائیو پری ویو باکس
+                Card(
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth().height(150.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.LightGray.copy(0.2f))
+                ) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        // یہ باکس بالکل فلوٹنگ ونڈو کی طرح دکھے گا
+                        Box(modifier = Modifier
+                            .wrapContentSize()
+                            .background(Color(bgColor).copy(alpha = opacity), RoundedCornerShape(4.dp))
+                            .padding(8.dp)
+                        ) {
+                            Text("اردو سب ٹائٹل نمونہ", color = Color(textColor), fontSize = textSize.sp)
+                        }
                     }
                 }
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                Button(modifier = Modifier.fillMaxWidth(), onClick = {
-                    if (!Settings.canDrawOverlays(this@MainActivity)) {
-                        startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
-                    } else {
-                        startForegroundService(Intent(this@MainActivity, SubtitleService::class.java))
+                Button(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    onClick = {
+                        if (!Settings.canDrawOverlays(this@MainActivity)) {
+                            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+                        } else {
+                            startForegroundService(Intent(this@MainActivity, SubtitleService::class.java))
+                        }
                     }
-                }) { Text("Start Player (Pause Mode)") }
-
-                // سلائیڈرز
-                Text("Text Size: ${textSize.toInt()}")
-                Slider(value = textSize, valueRange = 12f..50f, onValueChange = { textSize = it; prefs.edit().putFloat("text_size", it).apply(); updateService() })
-
-                Text("Opacity: ${(opacity * 100).toInt()}%")
-                Slider(value = opacity, valueRange = 0f..1f, onValueChange = { opacity = it; prefs.edit().putFloat("opacity", it).apply(); updateService() })
-
-                Row {
-                    Button(onClick = { textColor = if(textColor == Color.White.toArgb()) Color.Yellow.toArgb() else Color.White.toArgb(); prefs.edit().putInt("text_color", textColor).apply(); updateService() }) { Text("Text Color") }
-                    Spacer(Modifier.width(10.dp))
-                    Button(onClick = { bgColor = if(bgColor == Color.Black.toArgb()) Color.DarkGray.toArgb() else Color.Black.toArgb(); prefs.edit().putInt("bg_color", bgColor).apply(); updateService() }) { Text("BG Color") }
+                ) {
+                    Text("🚀 Start Floating Player")
                 }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // سیٹنگز کنٹرولز
+                Text("Text Size: ${textSize.toInt()}", style = MaterialTheme.typography.labelLarge)
+                Slider(value = textSize, valueRange = 12f..50f, onValueChange = { 
+                    textSize = it
+                    prefs.edit().putFloat("text_size", it).apply()
+                    updateService() 
+                })
+
+                Text("Background Opacity: ${(opacity * 100).toInt()}%", style = MaterialTheme.typography.labelLarge)
+                Slider(value = opacity, valueRange = 0f..1f, onValueChange = { 
+                    opacity = it
+                    prefs.edit().putFloat("opacity", it).apply()
+                    updateService() 
+                })
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    OutlinedButton(onClick = { 
+                        textColor = if(textColor == Color.White.toArgb()) Color.Yellow.toArgb() else Color.White.toArgb()
+                        prefs.edit().putInt("text_color", textColor).apply()
+                        updateService() 
+                    }) { Text("Text Color") }
+
+                    OutlinedButton(onClick = { 
+                        bgColor = if(bgColor == Color.Black.toArgb()) Color(0xFF222222).toArgb() else Color.Black.toArgb()
+                        prefs.edit().putInt("bg_color", bgColor).apply()
+                        updateService() 
+                    }) { Text("BG Color") }
+                }
+                
+                Spacer(modifier = Modifier.height(30.dp))
+                Text("نوٹ: پلیئر ونڈو میں ٹائم آف سیٹ اور بیک گراؤنڈ چھپانے کے بٹنز موجود ہیں۔", 
+                    style = MaterialTheme.typography.bodySmall, 
+                    color = Color.Gray)
             }
         }
     }
 
     private fun updateService() {
+        // سروس کو صرف تب اپڈیٹ کریں اگر وہ چل رہی ہو
         startForegroundService(Intent(this, SubtitleService::class.java))
     }
 }
