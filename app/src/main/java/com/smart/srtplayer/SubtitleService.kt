@@ -14,6 +14,7 @@ import android.widget.TextView
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.app.NotificationCompat
+import com.smart.srtplayer.R  // یہ لائن تمام ایررز ختم کر دے گی
 
 class SubtitleService : Service() {
 
@@ -39,6 +40,8 @@ class SubtitleService : Service() {
     private fun setupFloatingWindow() {
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         val inflater = getSystemService(LAYOUT_INFLATER_SERVICE) as LayoutInflater
+        
+        // یہاں R.layout اب کام کرے گا
         floatingView = inflater.inflate(R.layout.overlay_layout, null)
 
         val params = WindowManager.LayoutParams(
@@ -57,6 +60,7 @@ class SubtitleService : Service() {
     private fun updateUIFromPrefs() {
         val prefs = getSharedPreferences("SmartPrefs", MODE_PRIVATE)
         floatingView?.let { view ->
+            // یہاں R.id اب کام کریں گے
             val container = view.findViewById<FrameLayout>(R.id.subtitle_container)
             val textSub = view.findViewById<TextView>(R.id.subtitle_text)
             val textTimer = view.findViewById<TextView>(R.id.timer_text)
@@ -89,7 +93,6 @@ class SubtitleService : Service() {
                 if (!isPlaying) return
                 val elapsed = System.currentTimeMillis() - startTime
                 
-                // یہاں ہم نے نام بدل کر ایرر ختم کیا ہے
                 val currentSub = MainActivity.fullSubtitleList.find { sub -> 
                     elapsed >= sub.start && elapsed <= sub.end 
                 }
