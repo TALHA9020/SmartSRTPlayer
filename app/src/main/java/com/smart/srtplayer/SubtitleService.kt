@@ -6,7 +6,7 @@ import android.graphics.PixelFormat
 import android.os.*
 import android.view.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable // یہ امپورٹ شامل کیا گیا ہے
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -156,13 +156,20 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
                     }
                     .background(finalBgColor, RoundedCornerShape(12.dp))
                     .padding(8.dp)
+                    // یہاں ہم نے ونڈو کی چوڑائی سیٹ کر دی ہے تاکہ سب ٹائٹل ورٹیکل نہ ہو
+                    .widthIn(min = 250.dp, max = 450.dp) 
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(IntrinsicSize.Min)) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally, 
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
                         
+                        // ٹائمر (صرف ان فولڈ موڈ میں)
                         if (!controlsFolded) {
                             Text(text = displayTime, color = textCol.copy(alpha = 0.6f), fontSize = (16 * clockSize).sp, fontFamily = font)
                         }
 
+                        // سب ٹائٹل ٹیکسٹ (ہمیشہ ہوریزونٹل رہے گا)
                         Text(
                             text = currentText, 
                             color = textCol, 
@@ -172,11 +179,17 @@ class SubtitleService : Service(), LifecycleOwner, SavedStateRegistryOwner {
                             modifier = Modifier
                                 .clickable { isControlsFolded.value = !isControlsFolded.value }
                                 .padding(horizontal = 8.dp)
+                                .fillMaxWidth()
                         )
                         
+                        // کنٹرولز
                         if (!controlsFolded) {
                             Spacer(modifier = Modifier.height(8.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
                                 IconButton(onClick = { if(currentIndex.intValue > 0) { 
                                     currentIndex.intValue-- 
                                     currentTimeMs = MainActivity.fullSubtitleList[currentIndex.intValue].start
