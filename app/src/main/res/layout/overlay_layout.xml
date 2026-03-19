@@ -52,8 +52,7 @@
             android:layout_width="35dp" 
             android:layout_height="35dp" 
             android:src="@android:drawable/ic_media_previous" 
-            android:background="?android:attr/selectableItemBackground" 
-            android:contentDescription="Offset -" />
+            android:background="?android:attr/selectableItemBackground" />
 
         <ImageButton 
             android:id="@+id/btn_backward" 
@@ -81,8 +80,7 @@
             android:layout_width="35dp" 
             android:layout_height="35dp" 
             android:src="@android:drawable/ic_media_next" 
-            android:background="?android:attr/selectableItemBackground" 
-            android:contentDescription="Offset +" />
+            android:background="?android:attr/selectableItemBackground" />
 
         <ImageButton 
             android:id="@+id/btn_hide_bg" 
@@ -99,8 +97,7 @@
             android:src="@android:drawable/ic_menu_close_clear_cancel" 
             android:background="?android:attr/selectableItemBackground" 
             android:tint="#F44336"
-            android:layout_marginStart="4dp"
-            android:contentDescription="Close" />
+            android:layout_marginStart="4dp" />
 
     </LinearLayout>
 </RelativeLayout>
