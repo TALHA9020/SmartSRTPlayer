@@ -1,50 +1,59 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="wrap_content"
-    android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:gravity="center">
+    android:layout_height="wrap_content">
 
-    <LinearLayout
-        android:id="@+id/controls_layout"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:background="#DD111111"
-        android:orientation="vertical"
-        android:padding="5dp"
-        android:gravity="center">
-
-        <TextView android:id="@+id/timer_display" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="00:00:00" android:textColor="#FFEB3B" android:textSize="12sp" />
-
-        <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal">
-            <ImageButton android:id="@+id/btn_add_srt" android:layout_width="35dp" android:layout_height="35dp" android:src="@android:drawable/ic_menu_add" android:tint="#FFFFFF" android:background="?attr/selectableItemBackground"/>
-            <ImageButton android:id="@+id/btn_backward" android:layout_width="35dp" android:layout_height="35dp" android:src="@android:drawable/ic_media_rew" android:tint="#FFFFFF" android:background="?attr/selectableItemBackground"/>
-            <ImageButton android:id="@+id/btn_play_pause" android:layout_width="40dp" android:layout_height="40dp" android:src="@android:drawable/ic_media_play" android:tint="#FFFFFF" android:background="?attr/selectableItemBackground"/>
-            <ImageButton android:id="@+id/btn_forward" android:layout_width="35dp" android:layout_height="35dp" android:src="@android:drawable/ic_media_ff" android:tint="#FFFFFF" android:background="?attr/selectableItemBackground"/>
-            <ImageButton android:id="@+id/btn_toggle_bg" android:layout_width="35dp" android:layout_height="35dp" android:src="@android:drawable/ic_menu_view" android:tint="#FFEB3B" android:background="?attr/selectableItemBackground"/>
-        </LinearLayout>
-
-        <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="2dp">
-            <Button android:id="@+id/btn_offset_minus" android:layout_width="50dp" android:layout_height="30dp" android:text="-0.5s" android:textSize="8sp" android:backgroundTint="#333"/>
-            <Button android:id="@+id/btn_offset_plus" android:layout_width="50dp" android:layout_height="30dp" android:text="+0.5s" android:textSize="8sp" android:backgroundTint="#333" android:layout_marginStart="5dp"/>
-            <ImageButton android:id="@+id/btn_close" android:layout_width="30dp" android:layout_height="30dp" android:src="@android:drawable/ic_menu_close_clear_cancel" android:tint="#FF5252" android:background="?attr/selectableItemBackground" android:layout_marginStart="5dp"/>
-        </LinearLayout>
-    </LinearLayout>
-
+    <!-- اصل سب ٹائٹل ٹیکسٹ کا خانہ (یہ ڈریگ ایبل ہوگا) -->
     <LinearLayout
         android:id="@+id/subtitle_container"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:padding="10dp"
-        android:layout_marginTop="5dp"
         android:background="#CC000000">
         <TextView
             android:id="@+id/subtitle_text"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="سب ٹائٹل یہاں نظر آئے گا"
+            android:text="Tap to show controls"
             android:textColor="#FFFFFF"
             android:textSize="20sp"
             android:textAlignment="center" />
     </LinearLayout>
-</LinearLayout>
+
+    <!-- کنٹرولز والا حصہ جو ٹیپ کرنے پر ظاہر ہوگا -->
+    <LinearLayout
+        android:id="@+id/controls_layout"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_below="@id/subtitle_container"
+        android:layout_marginTop="5dp"
+        android:background="#DD111111"
+        android:orientation="vertical"
+        android:padding="5dp"
+        android:gravity="center"
+        android:visibility="gone">
+
+        <!-- ٹائمر ڈسپلے -->
+        <TextView 
+            android:id="@+id/timer_display" 
+            android:layout_width="wrap_content" 
+            android:layout_height="wrap_content" 
+            android:text="00:00:00" 
+            android:textColor="#FFEB3B" 
+            android:textSize="12sp" />
+
+        <LinearLayout 
+            android:layout_width="wrap_content" 
+            android:layout_height="wrap_content" 
+            android:orientation="horizontal">
+            
+            <ImageButton android:id="@+id/btn_playlist" android:layout_width="35dp" android:layout_height="35dp" android:src="@android:drawable/ic_menu_sort_by_size" android:background="?attr/selectableItemBackground" android:tint="#FFFFFF"/>
+            <ImageButton android:id="@+id/btn_backward" android:layout_width="35dp" android:layout_height="35dp" android:src="@android:drawable/ic_media_rew" android:background="?attr/selectableItemBackground" android:tint="#FFFFFF"/>
+            <ImageButton android:id="@+id/btn_play_pause" android:layout_width="45dp" android:layout_height="45dp" android:src="@android:drawable/ic_media_play" android:background="?attr/selectableItemBackground" android:tint="#FFFFFF"/>
+            <ImageButton android:id="@+id/btn_forward" android:layout_width="35dp" android:layout_height="35dp" android:src="@android:drawable/ic_media_ff" android:background="?attr/selectableItemBackground" android:tint="#FFFFFF"/>
+            <ImageButton android:id="@+id/btn_toggle_bg" android:layout_width="35dp" android:layout_height="35dp" android:src="@android:drawable/ic_menu_view" android:background="?attr/selectableItemBackground" android:tint="#FFEB3B"/>
+            <ImageButton android:id="@+id/btn_close" android:layout_width="35dp" android:layout_height="35dp" android:src="@android:drawable/ic_menu_close_clear_cancel" android:background="?attr/selectableItemBackground" android:tint="#FF5252"/>
+
+        </LinearLayout>
+    </LinearLayout>
+</RelativeLayout>
