@@ -12,19 +12,21 @@ import android.view.*
 import android.widget.*
 import androidx.core.app.NotificationCompat
 import java.io.BufferedReader
+import java.io.File
+import java.io.FileOutputStream
 import java.io.InputStreamReader
 
 class SubtitleService : Service() {
     private lateinit var windowManager: WindowManager
     private var floatingView: View? = null
     private val handler = Handler(Looper.getMainLooper())
-    private val saveHandler = Handler(Looper.getMainLooper())
+    private val seekHandler = Handler(Looper.getMainLooper())
 
     private var isPlaying = false
     private var isControlsVisible = true
     private var isBgHidden = false
     private var currentTimeMs: Long = 0
-    private var timeOffset: Long = 0 // سبٹائٹل کو آگے پیچھے کرنے کے لیے
+    private var timeOffset: Long = 0
     private var subtitleList = mutableListOf<SubtitleItem>()
 
     private var userBgColor: Int = Color.BLACK
@@ -44,12 +46,32 @@ class SubtitleService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val prefs = getSharedPreferences("srt_prefs", MODE_PRIVATE)
         val srtUriStr = intent?.getStringExtra("srtUri") ?: prefs.getString("srt_uri", null)
+        val fontUriStr = intent?.getStringExtra("fontUri") ?: prefs.getString("font_uri", null)
+        
         currentTimeMs = prefs.getLong("last_time", 0L)
 
         srtUriStr?.let { parseSrt(Uri.parse(it)) }
-        setupFloatingWindow(intent)
+        setupFloatingWindow(intent, fontUriStr)
         startAutoSaveTask()
         return START_NOT_STICKY
+    }
+
+    // TTF فونٹ لوڈ کرنے کا فنکشن
+    private fun loadCustomFont(uriStr: String?): Typeface? {
+        if (uriStr == null) return null
+        return try {
+            val uri = Uri.parse(uriStr)
+            val inputStream = contentResolver.openInputStream(uri)
+            val tempFile = File(cacheDir, "temp_font.ttf")
+            val outputStream = FileOutputStream(tempFile)
+            inputStream?.use { input ->
+                outputStream.use { output -> input.copyTo(output) }
+            }
+            Typeface.createFromFile(tempFile)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
     }
 
     private fun parseSrt(uri: Uri) {
@@ -83,21 +105,24 @@ class SubtitleService : Service() {
     }
 
     @SuppressLint("ClickableViewAccessibility")
-    private fun setupFloatingWindow(intent: Intent?) {
+    private fun setupFloatingWindow(intent: Intent?, fontUriStr: String?) {
         if (floatingView != null) windowManager.removeView(floatingView)
         floatingView = LayoutInflater.from(this).inflate(R.layout.overlay_layout, null)
 
         val subText = floatingView!!.findViewById<TextView>(R.id.subtitle_text)
-        val timerTxt = floatingView!!.findViewById<TextView>(R.id.timer_display)
         val container = floatingView!!.findViewById<LinearLayout>(R.id.subtitle_container)
         val controls = floatingView!!.findViewById<LinearLayout>(R.id.controls_layout)
         
         val playBtn = floatingView!!.findViewById<ImageButton>(R.id.btn_play_pause)
         val forwardBtn = floatingView!!.findViewById<ImageButton>(R.id.btn_forward)
         val backwardBtn = floatingView!!.findViewById<ImageButton>(R.id.btn_backward)
+        val closeBtn = floatingView!!.findViewById<ImageButton>(R.id.btn_close_service)
         val offsetPlus = floatingView!!.findViewById<ImageButton>(R.id.btn_offset_plus)
         val offsetMinus = floatingView!!.findViewById<ImageButton>(R.id.btn_offset_minus)
         val hideBgBtn = floatingView!!.findViewById<ImageButton>(R.id.btn_hide_bg)
+
+        // فونٹ اپلائی کریں
+        loadCustomFont(fontUriStr)?.let { subText.typeface = it }
 
         intent?.let {
             subText.textSize = it.getFloatExtra("fontSize", 24f)
@@ -136,29 +161,43 @@ class SubtitleService : Service() {
             }
         })
 
-        // بٹنوں کے فنکشنز
+        // لونگ پریس لاجک (تیز رفتاری سے وقت بدلنے کے لیے)
+        fun createSeekRunnable(isForward: Boolean): Runnable = object : Runnable {
+            override fun run() {
+                if (isForward) currentTimeMs += 1000 else currentTimeMs = maxOf(0, currentTimeMs - 1000)
+                updateUI()
+                seekHandler.postDelayed(this, 100) // ہر 100 ملی سیکنڈ بعد سپیڈ بڑھے گی
+            }
+        }
+
+        val forwardRunnable = createSeekRunnable(true)
+        val backwardRunnable = createSeekRunnable(false)
+
+        forwardBtn.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> seekHandler.post(forwardRunnable)
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> seekHandler.removeCallbacks(forwardRunnable)
+            }
+            true
+        }
+
+        backwardBtn.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> seekHandler.post(backwardRunnable)
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> seekHandler.removeCallbacks(backwardRunnable)
+            }
+            true
+        }
+
         playBtn.setOnClickListener {
             isPlaying = !isPlaying
             playBtn.setImageResource(if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play)
         }
 
-        forwardBtn.setOnClickListener { currentTimeMs += 5000; updateUI() }
-        backwardBtn.setOnClickListener { currentTimeMs = maxOf(0, currentTimeMs - 5000); updateUI() }
-        
-        offsetPlus.setOnClickListener { 
-            timeOffset += 500
-            Toast.makeText(this, "Offset: +${timeOffset}ms", Toast.LENGTH_SHORT).show()
-        }
-        
-        offsetMinus.setOnClickListener { 
-            timeOffset -= 500
-            Toast.makeText(this, "Offset: ${timeOffset}ms", Toast.LENGTH_SHORT).show()
-        }
-
-        hideBgBtn.setOnClickListener {
-            isBgHidden = !isBgHidden
-            updateBackground(container)
-        }
+        offsetPlus.setOnClickListener { timeOffset += 500; updateUI() }
+        offsetMinus.setOnClickListener { timeOffset -= 500; updateUI() }
+        hideBgBtn.setOnClickListener { isBgHidden = !isBgHidden; updateBackground(container) }
+        closeBtn.setOnClickListener { stopSelf() }
 
         windowManager.addView(floatingView, params)
         startMainLoop()
@@ -177,8 +216,8 @@ class SubtitleService : Service() {
     }
 
     private fun updateUI() {
-        val displayTime = currentTimeMs // اصل ٹائمر
-        val subSyncTime = currentTimeMs + timeOffset // سبٹائٹل کے لیے ایڈجسٹڈ ٹائم
+        val displayTime = currentTimeMs
+        val subSyncTime = currentTimeMs + timeOffset
 
         val s = (displayTime / 1000) % 60
         val m = (displayTime / 60000) % 60
@@ -198,11 +237,11 @@ class SubtitleService : Service() {
     }
 
     private fun startAutoSaveTask() {
-        saveHandler.postDelayed(object : Runnable {
+        handler.postDelayed(object : Runnable {
             override fun run() {
                 getSharedPreferences("srt_prefs", MODE_PRIVATE).edit()
                     .putLong("last_time", currentTimeMs).apply()
-                saveHandler.postDelayed(this, 5000)
+                handler.postDelayed(this, 5000)
             }
         }, 5000)
     }
@@ -217,7 +256,7 @@ class SubtitleService : Service() {
     override fun onDestroy() {
         getSharedPreferences("srt_prefs", MODE_PRIVATE).edit().putLong("last_time", currentTimeMs).apply()
         handler.removeCallbacksAndMessages(null)
-        saveHandler.removeCallbacksAndMessages(null)
+        seekHandler.removeCallbacksAndMessages(null)
         floatingView?.let { windowManager.removeView(it) }
         super.onDestroy()
     }
