@@ -1,5 +1,6 @@
 package com.smart.srtplayer
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -36,19 +37,50 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainScreen() {
     val context = LocalContext.current
+    val prefs = context.getSharedPreferences("srt_prefs", Context.MODE_PRIVATE)
+
     var subFontSize by remember { mutableStateOf(24f) }
     var timerSize by remember { mutableStateOf(16f) }
     var bgOpacity by remember { mutableStateOf(0.7f) }
     var textColor by remember { mutableStateOf(Color.White) }
     var bgColor by remember { mutableStateOf(Color.Black) }
+    
     var srtUri by remember { mutableStateOf<Uri?>(null) }
     var fontUri by remember { mutableStateOf<Uri?>(null) }
 
     var showTextColorPicker by remember { mutableStateOf(false) }
     var showBgColorPicker by remember { mutableStateOf(false) }
 
-    val srtLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { srtUri = it }
-    val fontLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { fontUri = it }
+    // محفوظ شدہ ڈیٹا لوڈ کریں
+    LaunchedEffect(Unit) {
+        prefs.getString("srt_uri", null)?.let { srtUri = Uri.parse(it) }
+        prefs.getString("font_uri", null)?.let { fontUri = Uri.parse(it) }
+    }
+
+    // SRT فائل چننے کا فنکشن (نئی فائل پر ٹائم ری سیٹ ہوگا)
+    val srtLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let {
+            try {
+                context.contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                srtUri = it
+                prefs.edit()
+                    .putString("srt_uri", it.toString())
+                    .putLong("last_time", 0L) // نئی فائل پر ٹائمر زیرو
+                    .apply()
+                Toast.makeText(context, "New SRT Loaded & Timer Reset", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(context, "Permission Error", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    val fontLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let {
+            context.contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            fontUri = it
+            prefs.edit().putString("font_uri", it.toString()).apply()
+        }
+    }
 
     Column(
         modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
@@ -57,7 +89,6 @@ fun MainScreen() {
         Text("Smart SRT Player Settings", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
 
         // Live Preview
-        Text("Preview:", fontWeight = FontWeight.Bold)
         Box(
             modifier = Modifier.fillMaxWidth().height(100.dp).background(Color.Gray.copy(0.1f), RoundedCornerShape(8.dp)).border(1.dp, Color.LightGray, RoundedCornerShape(8.dp)),
             contentAlignment = Alignment.Center
@@ -73,18 +104,20 @@ fun MainScreen() {
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { srtLauncher.launch(arrayOf("*/*")) }, modifier = Modifier.weight(1f)) {
-                Text(if (srtUri == null) "Add SRT" else "SRT Added ✅")
+                Text(if (srtUri == null) "Select SRT" else "Update SRT ✅")
             }
             Button(onClick = { fontLauncher.launch(arrayOf("*/*")) }, modifier = Modifier.weight(1f)) {
-                Text(if (fontUri == null) "Add Font" else "Font Added ✅")
+                Text(if (fontUri == null) "Select Font" else "Update Font ✅")
             }
+        }
+
+        // ٹائمر زیرو کرنے کا بٹن (مینولی ری سیٹ کے لیے)
+        OutlinedButton(onClick = { prefs.edit().putLong("last_time", 0L).apply() }, modifier = Modifier.fillMaxWidth()) {
+            Text("Reset Timer to 00:00")
         }
 
         Text("Font Size: ${subFontSize.toInt()}")
         Slider(value = subFontSize, valueRange = 12f..60f, onValueChange = { subFontSize = it })
-
-        Text("Timer Size: ${timerSize.toInt()}")
-        Slider(value = timerSize, valueRange = 10f..30f, onValueChange = { timerSize = it })
 
         Text("Background Opacity: ${(bgOpacity * 100).toInt()}%")
         Slider(value = bgOpacity, valueRange = 0f..1f, onValueChange = { bgOpacity = it })
@@ -100,7 +133,7 @@ fun MainScreen() {
                     val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
                     context.startActivity(intent)
                 } else if (srtUri == null) {
-                    Toast.makeText(context, "Please select an SRT file first", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Please select an SRT file", Toast.LENGTH_SHORT).show()
                 } else {
                     val intent = Intent(context, SubtitleService::class.java).apply {
                         putExtra("fontSize", subFontSize)
@@ -117,7 +150,7 @@ fun MainScreen() {
             modifier = Modifier.fillMaxWidth().height(56.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1B5E20))
         ) {
-            Text("START SUBTITLE PLAYER", fontWeight = FontWeight.Bold)
+            Text("START PLAYER", fontWeight = FontWeight.Bold)
         }
     }
 
