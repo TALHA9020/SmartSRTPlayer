@@ -1,12 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- سسٹم کے اوپر ونڈو دکھانے کی اجازت -->
+    <!-- ضروری اجازتیں -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-    <!-- بیک گراؤنڈ میں پلیئر چلانے کی اجازت -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
-    <!-- اینڈرائیڈ 13+ کے لیے نوٹیفیکیشن کی اجازت -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
@@ -25,19 +22,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-
-        <!-- فائل پکر ایکٹیویٹی جو نظر نہیں آئے گی لیکن کام کرے گی -->
-        <activity 
-            android:name=".FilePickerActivity"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar"
-            android:excludeFromRecents="true" />
-
-        <!-- سب ٹائٹل سروس جو فلوٹنگ ونڈو چلائے گی -->
-        <service
-            android:name=".SubtitleService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="mediaPlayback" />
 
     </application>
 </manifest>
