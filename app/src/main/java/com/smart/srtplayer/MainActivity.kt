@@ -13,9 +13,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -23,13 +20,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import java.io.File
+import java.nio.charset.Charset
 
 class MainActivity : ComponentActivity() {
 
@@ -39,38 +36,56 @@ class MainActivity : ComponentActivity() {
         var currentPlaylist = mutableListOf<PlaylistItem>()
         var currentSrtPath: String? = null
 
-        // SRT فائل کو پڑھنے اور ڈیٹا میں تبدیل کرنے کا فنکشن
+        // اردو اور UTF-8 سپورٹ کے ساتھ لوڈر
         fun loadSubtitle(context: Context, path: String) {
             val file = File(path)
-            if (file.exists()) {
+            if (!file.exists()) return
+            
+            try {
                 currentSubtitleList.clear()
-                val content = file.readText()
-                val blocks = content.split(Regex("(\\n\\n)|(\\r\\n\\r\\n)"))
+                // فائل کو UTF-8 میں پڑھنا تاکہ اردو حروف ٹھیک رہیں
+                val content = file.readText(Charsets.UTF_8)
+                
+                // بلاکس میں تقسیم کرنا (لائن بریکس کے مختلف انداز کو ہینڈل کرنا)
+                val blocks = content.split(Regex("\\n\\s*\\n|\\r\\n\\s*\\r\\n"))
+                
                 for (block in blocks) {
                     val lines = block.trim().lines()
-                    if (lines.size >= 3) {
-                        val timeRange = lines[1].split(" --> ")
+                    val timeLine = lines.find { it.contains(" --> ") }
+                    
+                    if (timeLine != null) {
+                        val timeRange = timeLine.split(" --> ")
                         if (timeRange.size == 2) {
-                            currentSubtitleList.add(SubtitleItem(
-                                timeToMs(timeRange[0]), 
-                                timeToMs(timeRange[1]), 
-                                lines.drop(2).joinToString("\n")
-                            ))
+                            val startIndex = lines.indexOf(timeLine) + 1
+                            val text = lines.drop(startIndex).joinToString("\n").trim()
+                            
+                            if (text.isNotEmpty()) {
+                                currentSubtitleList.add(SubtitleItem(
+                                    timeToMs(timeRange[0]), 
+                                    timeToMs(timeRange[1]), 
+                                    text
+                                ))
+                            }
                         }
                     }
                 }
                 currentSrtPath = path
                 context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
                     .edit().putString("last_srt_path", path).apply()
-            }
+            } catch (e: Exception) { e.printStackTrace() }
         }
 
         private fun timeToMs(time: String): Long {
             return try {
-                val parts = time.replace(",", ".").split(":")
-                (parts[0].trim().toLong() * 3600000) +
-                (parts[1].trim().toLong() * 60000) +
-                (parts[2].trim().toDouble() * 1000).toLong()
+                val cleanTime = time.trim().replace(",", ".")
+                val parts = cleanTime.split(":")
+                val secondsParts = parts[2].split(".")
+                
+                val h = parts[0].toLong() * 3600000
+                val m = parts[1].toLong() * 60000
+                val s = secondsParts[0].toLong() * 1000
+                val ms = if (secondsParts.size > 1) secondsParts[1].padEnd(3, '0').take(3).toLong() else 0L
+                h + m + s + ms
             } catch (e: Exception) { 0L }
         }
     }
@@ -81,7 +96,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
 
-        // نوٹیفیکیشن کی اجازت (Android 13+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 101)
         }
@@ -89,70 +103,53 @@ class MainActivity : ComponentActivity() {
         loadPlaylistData()
         prefs.getString("last_srt_path", null)?.let { loadSubtitle(this, it) }
 
-        setContent {
-            MaterialTheme {
-                MainScreen()
-            }
-        }
+        setContent { MaterialTheme { MainScreen() } }
     }
 
     private fun loadPlaylistData() {
         val json = prefs.getString("playlist", "[]")
-        val type = object : TypeToken<MutableList<PlaylistItem>>() {}.type
-        currentPlaylist = Gson().fromJson(json, type)
+        currentPlaylist = Gson().fromJson(json, object : TypeToken<MutableList<PlaylistItem>>() {}.type)
     }
 
     @Composable
     fun MainScreen() {
         var playlistState by remember { mutableStateOf(currentPlaylist.toList()) }
         var selectedPath by remember { mutableStateOf(currentSrtPath) }
-        
-        // سیٹنگز اسٹیٹس
-        var textSize by remember { mutableStateOf(prefs.getFloat("text_size", 20f)) }
+        var textSize by remember { mutableStateOf(prefs.getFloat("text_size", 24f)) }
         var opacity by remember { mutableStateOf(prefs.getFloat("opacity", 0.8f)) }
 
         Column(modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
-            Text("Smart SRT Player", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.primary)
+            Text("Urdu SRT Player", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.primary)
             
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-            // --- ڈیزائن کنٹرولز ---
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Design Controls", style = MaterialTheme.typography.titleMedium)
-                    
-                    Text("Font Size: ${textSize.toInt()}")
-                    Slider(value = textSize, valueRange = 12f..50f, onValueChange = { 
+                    Text("Settings", style = MaterialTheme.typography.titleMedium)
+                    Text("Text Size: ${textSize.toInt()}")
+                    Slider(value = textSize, valueRange = 16f..60f, onValueChange = { 
                         textSize = it
                         prefs.edit().putFloat("text_size", it).apply()
                     })
-
-                    Text("Background Opacity: ${(opacity * 100).toInt()}%")
+                    Text("Opacity: ${(opacity * 100).toInt()}%")
                     Slider(value = opacity, valueRange = 0f..1f, onValueChange = { 
                         opacity = it
                         prefs.edit().putFloat("opacity", it).apply()
                     })
-
-                    Button(onClick = { openPicker("font") }, modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Default.TextFields, null)
-                        Text(" Select Custom Font (.ttf)")
-                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-            // --- پلے لسٹ ---
-            Text("Subtitle Playlist", style = MaterialTheme.typography.titleLarge)
-            Button(onClick = { openPicker("srt") }, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+            Button(onClick = { openPicker() }, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Default.Add, null)
-                Text(" Add New Subtitle")
+                Text(" Add Urdu SRT File")
             }
 
             playlistState.forEach { item ->
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
-                        .background(if(selectedPath == item.path) Color.LightGray else Color.Transparent)
+                        .background(if(selectedPath == item.path) Color(0xFFE3F2FD) else Color.Transparent)
                         .clickable { 
                             loadSubtitle(this@MainActivity, item.path)
                             selectedPath = item.path
@@ -161,25 +158,24 @@ class MainActivity : ComponentActivity() {
                 ) {
                     Icon(Icons.Default.Description, null)
                     Text(item.name, modifier = Modifier.weight(1f).padding(start = 8.dp))
-                    if(selectedPath == item.path) Icon(Icons.Default.CheckCircle, null, tint = Color.Green)
+                    if(selectedPath == item.path) Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF4CAF50))
                 }
             }
 
-            Spacer(modifier = Modifier.height(30.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
-            // --- پلیئر شروع کریں ---
             Button(
                 onClick = { startFloatingService() },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50))
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
             ) {
-                Text("OPEN PLAYER WINDOW", fontSize = 18.sp)
+                Text("START PLAYER", fontSize = 18.sp)
             }
         }
     }
 
-    private fun openPicker(type: String) {
-        startActivity(Intent(this, FilePickerActivity::class.java).putExtra("type", type))
+    private fun openPicker() {
+        startActivity(Intent(this, FilePickerActivity::class.java).putExtra("type", "srt"))
     }
 
     private fun startFloatingService() {
