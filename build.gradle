@@ -1,5 +1,4 @@
-// build.gradle (Project Level) - مکمل کوڈ
-
+// Top-level build file where you can add configuration options common to all sub-projects/modules.
 buildscript {
     repositories {
         google()
@@ -8,12 +7,11 @@ buildscript {
 }
 
 plugins {
-    // یہ اینڈرائیڈ اور کوٹلن کے ورژن کو کنٹرول کرتے ہیں
+    // اینڈرائیڈ گریڈل پلگ ان اور کوٹلن ورژن (سٹیبل ورژنز)
     id 'com.android.application' version '8.1.0' apply false
     id 'org.jetbrains.kotlin.android' version '1.9.0' apply false
 }
 
-// پرانی بلڈ فائلز کو صاف کرنے کے لیے ٹاسک
 tasks.register('clean', Delete) {
     delete rootProject.buildDir
 }
