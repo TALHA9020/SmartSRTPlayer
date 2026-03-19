@@ -24,8 +24,7 @@ class SubtitleService : Service() {
     private var isControlsVisible = true
     private var isBgHidden = false
     private var currentTimeMs: Long = 0
-    private var timeOffset: Long = 0
-    private var isSeeking = false
+    private var timeOffset: Long = 0 // سبٹائٹل کو آگے پیچھے کرنے کے لیے
     private var subtitleList = mutableListOf<SubtitleItem>()
 
     private var userBgColor: Int = Color.BLACK
@@ -38,20 +37,17 @@ class SubtitleService : Service() {
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         createNotificationChannel()
         startForeground(1, NotificationCompat.Builder(this, "srt_service")
-            .setContentTitle("Subtitle Window Active")
+            .setContentTitle("SRT Player is Running")
             .setSmallIcon(android.R.drawable.ic_media_play).build())
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val prefs = getSharedPreferences("srt_prefs", MODE_PRIVATE)
-        
-        // محفوظ شدہ فائل اور ٹائم لوڈ کریں
         val srtUriStr = intent?.getStringExtra("srtUri") ?: prefs.getString("srt_uri", null)
         currentTimeMs = prefs.getLong("last_time", 0L)
 
         srtUriStr?.let { parseSrt(Uri.parse(it)) }
         setupFloatingWindow(intent)
-        
         startAutoSaveTask()
         return START_NOT_STICKY
     }
@@ -62,20 +58,16 @@ class SubtitleService : Service() {
             contentResolver.openInputStream(uri)?.use { inputStream ->
                 val reader = BufferedReader(InputStreamReader(inputStream))
                 var line: String?
-                var startTime: Long = 0
-                var endTime: Long = 0
-                var textBuilder = StringBuilder()
-
                 while (reader.readLine().also { line = it } != null) {
                     if (line!!.contains(" --> ")) {
                         val parts = line!!.split(" --> ")
-                        startTime = srtTimeToMs(parts[0])
-                        endTime = srtTimeToMs(parts[1])
-                        textBuilder = StringBuilder()
+                        val start = srtTimeToMs(parts[0])
+                        val end = srtTimeToMs(parts[1])
+                        val text = StringBuilder()
                         while (reader.readLine().also { line = it } != null && line!!.isNotEmpty()) {
-                            textBuilder.append(line).append("\n")
+                            text.append(line).append("\n")
                         }
-                        subtitleList.add(SubtitleItem(startTime, endTime, textBuilder.toString().trim()))
+                        subtitleList.add(SubtitleItem(start, end, text.toString().trim()))
                     }
                 }
             }
@@ -99,25 +91,20 @@ class SubtitleService : Service() {
         val timerTxt = floatingView!!.findViewById<TextView>(R.id.timer_display)
         val container = floatingView!!.findViewById<LinearLayout>(R.id.subtitle_container)
         val controls = floatingView!!.findViewById<LinearLayout>(R.id.controls_layout)
+        
         val playBtn = floatingView!!.findViewById<ImageButton>(R.id.btn_play_pause)
+        val forwardBtn = floatingView!!.findViewById<ImageButton>(R.id.btn_forward)
+        val backwardBtn = floatingView!!.findViewById<ImageButton>(R.id.btn_backward)
+        val offsetPlus = floatingView!!.findViewById<ImageButton>(R.id.btn_offset_plus)
+        val offsetMinus = floatingView!!.findViewById<ImageButton>(R.id.btn_offset_minus)
+        val hideBgBtn = floatingView!!.findViewById<ImageButton>(R.id.btn_hide_bg)
 
-        // سیٹنگز اپلائی کریں
         intent?.let {
             subText.textSize = it.getFloatExtra("fontSize", 24f)
-            timerTxt.textSize = it.getFloatExtra("timerSize", 16f)
             subText.setTextColor(it.getIntExtra("textColor", Color.WHITE))
-            timerTxt.setTextColor(it.getIntExtra("textColor", Color.WHITE))
             userBgColor = it.getIntExtra("bgColor", Color.BLACK)
             userOpacity = it.getFloatExtra("opacity", 0.7f)
             updateBackground(container)
-
-            it.getStringExtra("fontUri")?.let { fUri ->
-                try {
-                    val pfd = contentResolver.openFileDescriptor(Uri.parse(fUri), "r")
-                    subText.typeface = Typeface.createFromFile("/proc/self/fd/${pfd?.fd}")
-                    pfd?.close()
-                } catch (e: Exception) {}
-            }
         }
 
         val params = WindowManager.LayoutParams(
@@ -127,7 +114,7 @@ class SubtitleService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply { gravity = Gravity.TOP; y = 300 }
 
-        // ڈریگ اور ٹیپ لاجک
+        // ڈریگ اور کنٹرولز ٹوگل
         container.setOnTouchListener(object : View.OnTouchListener {
             private var x = 0; private var y = 0; private var px = 0f; private var py = 0f
             override fun onTouch(v: View, e: MotionEvent): Boolean {
@@ -149,34 +136,38 @@ class SubtitleService : Service() {
             }
         })
 
+        // بٹنوں کے فنکشنز
         playBtn.setOnClickListener {
             isPlaying = !isPlaying
             playBtn.setImageResource(if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play)
+        }
+
+        forwardBtn.setOnClickListener { currentTimeMs += 5000; updateUI() }
+        backwardBtn.setOnClickListener { currentTimeMs = maxOf(0, currentTimeMs - 5000); updateUI() }
+        
+        offsetPlus.setOnClickListener { 
+            timeOffset += 500
+            Toast.makeText(this, "Offset: +${timeOffset}ms", Toast.LENGTH_SHORT).show()
+        }
+        
+        offsetMinus.setOnClickListener { 
+            timeOffset -= 500
+            Toast.makeText(this, "Offset: ${timeOffset}ms", Toast.LENGTH_SHORT).show()
+        }
+
+        hideBgBtn.setOnClickListener {
+            isBgHidden = !isBgHidden
+            updateBackground(container)
         }
 
         windowManager.addView(floatingView, params)
         startMainLoop()
     }
 
-    private fun startAutoSaveTask() {
-        saveHandler.postDelayed(object : Runnable {
-            override fun run() {
-                saveCurrentProgress()
-                saveHandler.postDelayed(this, 5000) // ہر 5 سیکنڈ بعد سیو
-            }
-        }, 5000)
-    }
-
-    private fun saveCurrentProgress() {
-        getSharedPreferences("srt_prefs", MODE_PRIVATE).edit()
-            .putLong("last_time", currentTimeMs)
-            .apply()
-    }
-
     private fun startMainLoop() {
         handler.post(object : Runnable {
             override fun run() {
-                if (isPlaying && !isSeeking) {
+                if (isPlaying) {
                     currentTimeMs += 100
                     updateUI()
                 }
@@ -186,13 +177,15 @@ class SubtitleService : Service() {
     }
 
     private fun updateUI() {
-        val totalTime = currentTimeMs + timeOffset
-        val s = (totalTime / 1000) % 60
-        val m = (totalTime / 60000) % 60
-        val h = (totalTime / 3600000) % 24
+        val displayTime = currentTimeMs // اصل ٹائمر
+        val subSyncTime = currentTimeMs + timeOffset // سبٹائٹل کے لیے ایڈجسٹڈ ٹائم
+
+        val s = (displayTime / 1000) % 60
+        val m = (displayTime / 60000) % 60
+        val h = (displayTime / 3600000) % 24
         floatingView?.findViewById<TextView>(R.id.timer_display)?.text = String.format("%02d:%02d:%02d", h, m, s)
         
-        val currentSub = subtitleList.find { totalTime in it.startTime..it.endTime }
+        val currentSub = subtitleList.find { subSyncTime in it.startTime..it.endTime }
         floatingView?.findViewById<TextView>(R.id.subtitle_text)?.text = currentSub?.text ?: ""
     }
 
@@ -204,6 +197,16 @@ class SubtitleService : Service() {
         }
     }
 
+    private fun startAutoSaveTask() {
+        saveHandler.postDelayed(object : Runnable {
+            override fun run() {
+                getSharedPreferences("srt_prefs", MODE_PRIVATE).edit()
+                    .putLong("last_time", currentTimeMs).apply()
+                saveHandler.postDelayed(this, 5000)
+            }
+        }, 5000)
+    }
+
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel("srt_service", "SRT Player", NotificationManager.IMPORTANCE_LOW)
@@ -212,9 +215,9 @@ class SubtitleService : Service() {
     }
 
     override fun onDestroy() {
-        saveCurrentProgress() // بند ہوتے وقت سیو کریں
-        saveHandler.removeCallbacksAndMessages(null)
+        getSharedPreferences("srt_prefs", MODE_PRIVATE).edit().putLong("last_time", currentTimeMs).apply()
         handler.removeCallbacksAndMessages(null)
+        saveHandler.removeCallbacksAndMessages(null)
         floatingView?.let { windowManager.removeView(it) }
         super.onDestroy()
     }
