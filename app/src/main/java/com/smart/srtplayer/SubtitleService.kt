@@ -29,6 +29,9 @@ class SubtitleService : Service() {
     private var timeOffset: Long = 0
     private var subtitleList = mutableListOf<SubtitleItem>()
 
+    // لونگ پریس سپیڈ کے لیے
+    private var currentJump: Long = 1000L 
+
     private var userBgColor: Int = Color.BLACK
     private var userOpacity: Float = 0.7f
 
@@ -56,7 +59,6 @@ class SubtitleService : Service() {
         return START_NOT_STICKY
     }
 
-    // TTF فونٹ لوڈ کرنے کا فنکشن
     private fun loadCustomFont(uriStr: String?): Typeface? {
         if (uriStr == null) return null
         return try {
@@ -68,10 +70,7 @@ class SubtitleService : Service() {
                 outputStream.use { output -> input.copyTo(output) }
             }
             Typeface.createFromFile(tempFile)
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
-        }
+        } catch (e: Exception) { e.printStackTrace(); null }
     }
 
     private fun parseSrt(uri: Uri) {
@@ -110,6 +109,7 @@ class SubtitleService : Service() {
         floatingView = LayoutInflater.from(this).inflate(R.layout.overlay_layout, null)
 
         val subText = floatingView!!.findViewById<TextView>(R.id.subtitle_text)
+        val timerDisplay = floatingView!!.findViewById<TextView>(R.id.timer_display)
         val container = floatingView!!.findViewById<LinearLayout>(R.id.subtitle_container)
         val controls = floatingView!!.findViewById<LinearLayout>(R.id.controls_layout)
         
@@ -121,7 +121,6 @@ class SubtitleService : Service() {
         val offsetMinus = floatingView!!.findViewById<ImageButton>(R.id.btn_offset_minus)
         val hideBgBtn = floatingView!!.findViewById<ImageButton>(R.id.btn_hide_bg)
 
-        // فونٹ اپلائی کریں
         loadCustomFont(fontUriStr)?.let { subText.typeface = it }
 
         intent?.let {
@@ -139,7 +138,7 @@ class SubtitleService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply { gravity = Gravity.TOP; y = 300 }
 
-        // ڈریگ اور کنٹرولز ٹوگل
+        // ڈریگ اور ٹوگل لاجک (ٹائمر کو بھی شامل کیا گیا)
         container.setOnTouchListener(object : View.OnTouchListener {
             private var x = 0; private var y = 0; private var px = 0f; private var py = 0f
             override fun onTouch(v: View, e: MotionEvent): Boolean {
@@ -153,6 +152,7 @@ class SubtitleService : Service() {
                         if (Math.abs(e.rawX - px) < 10) {
                             isControlsVisible = !isControlsVisible
                             controls.visibility = if (isControlsVisible) View.VISIBLE else View.GONE
+                            timerDisplay.visibility = if (isControlsVisible) View.VISIBLE else View.GONE
                         }
                         return true
                     }
@@ -161,12 +161,16 @@ class SubtitleService : Service() {
             }
         })
 
-        // لونگ پریس لاجک (تیز رفتاری سے وقت بدلنے کے لیے)
+        // متغیر رفتار کے ساتھ لونگ پریس لاجک
         fun createSeekRunnable(isForward: Boolean): Runnable = object : Runnable {
             override fun run() {
-                if (isForward) currentTimeMs += 1000 else currentTimeMs = maxOf(0, currentTimeMs - 1000)
+                if (isForward) currentTimeMs += currentJump else currentTimeMs = maxOf(0, currentTimeMs - currentJump)
+                
+                // رفتار بڑھانے کی لاجک: ہر قدم پر 500ms کا اضافہ (زیادہ سے زیادہ 10 سیکنڈ فی سٹیپ تک)
+                if (currentJump < 10000L) currentJump += 500L
+                
                 updateUI()
-                seekHandler.postDelayed(this, 100) // ہر 100 ملی سیکنڈ بعد سپیڈ بڑھے گی
+                seekHandler.postDelayed(this, 150) // ہر 150ms بعد اگلا قدم
             }
         }
 
@@ -175,7 +179,10 @@ class SubtitleService : Service() {
 
         forwardBtn.setOnTouchListener { _, event ->
             when (event.action) {
-                MotionEvent.ACTION_DOWN -> seekHandler.post(forwardRunnable)
+                MotionEvent.ACTION_DOWN -> {
+                    currentJump = 1000L // ری سیٹ سپیڈ
+                    seekHandler.post(forwardRunnable)
+                }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> seekHandler.removeCallbacks(forwardRunnable)
             }
             true
@@ -183,7 +190,10 @@ class SubtitleService : Service() {
 
         backwardBtn.setOnTouchListener { _, event ->
             when (event.action) {
-                MotionEvent.ACTION_DOWN -> seekHandler.post(backwardRunnable)
+                MotionEvent.ACTION_DOWN -> {
+                    currentJump = 1000L // ری سیٹ سپیڈ
+                    seekHandler.post(backwardRunnable)
+                }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> seekHandler.removeCallbacks(backwardRunnable)
             }
             true
@@ -216,12 +226,10 @@ class SubtitleService : Service() {
     }
 
     private fun updateUI() {
-        val displayTime = currentTimeMs
         val subSyncTime = currentTimeMs + timeOffset
-
-        val s = (displayTime / 1000) % 60
-        val m = (displayTime / 60000) % 60
-        val h = (displayTime / 3600000) % 24
+        val s = (currentTimeMs / 1000) % 60
+        val m = (currentTimeMs / 60000) % 60
+        val h = (currentTimeMs / 3600000) % 24
         floatingView?.findViewById<TextView>(R.id.timer_display)?.text = String.format("%02d:%02d:%02d", h, m, s)
         
         val currentSub = subtitleList.find { subSyncTime in it.startTime..it.endTime }
