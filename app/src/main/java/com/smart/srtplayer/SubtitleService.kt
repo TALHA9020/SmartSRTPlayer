@@ -6,6 +6,7 @@ import android.content.*
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.*
 import android.view.*
@@ -26,6 +27,7 @@ class SubtitleService : Service() {
     private var isControlsVisible = true
     private var isBgHidden = false
     private var currentTimeMs: Long = 0
+    private var lastTickTime: Long = 0
     private var timeOffset: Long = 0
     private var subtitleList = mutableListOf<SubtitleItem>()
     private var currentJump: Long = 1000L 
@@ -94,7 +96,6 @@ class SubtitleService : Service() {
         val offsetMinus = floatingView!!.findViewById<ImageButton>(R.id.btn_offset_minus)
         val hideBgBtn = floatingView!!.findViewById<ImageButton>(R.id.btn_hide_bg)
 
-        // سیٹنگز اپلائی کریں
         loadCustomFont(fontUriStr)?.let { subText.typeface = it }
         intent?.let {
             subText.textSize = it.getFloatExtra("fontSize", 24f)
@@ -111,7 +112,6 @@ class SubtitleService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply { gravity = Gravity.TOP; y = 300 }
 
-        // ڈریگ اور ٹوگل
         container.setOnTouchListener(object : View.OnTouchListener {
             private var x = 0; private var y = 0; private var px = 0f; private var py = 0f
             override fun onTouch(v: View, e: MotionEvent): Boolean {
@@ -134,7 +134,6 @@ class SubtitleService : Service() {
             }
         })
 
-        // لونگ پریس سپیڈ لاجک
         fun createSeekRunnable(isForward: Boolean): Runnable = object : Runnable {
             override fun run() {
                 if (isForward) currentTimeMs += currentJump else currentTimeMs = maxOf(0, currentTimeMs - currentJump)
@@ -156,8 +155,11 @@ class SubtitleService : Service() {
             true
         }
 
-        // کلک ایونٹس (اب یہ کام کریں گے)
-        playBtn.setOnClickListener { isPlaying = !isPlaying; playBtn.setImageResource(if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play) }
+        playBtn.setOnClickListener { 
+            isPlaying = !isPlaying
+            lastTickTime = SystemClock.elapsedRealtime() // ٹائمر کو سنک کریں
+            playBtn.setImageResource(if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play) 
+        }
         closeBtn.setOnClickListener { stopSelf() }
         hideBgBtn.setOnClickListener { isBgHidden = !isBgHidden; updateBackground(container) }
         offsetPlus.setOnClickListener { timeOffset += 500; updateUI() }
@@ -168,11 +170,32 @@ class SubtitleService : Service() {
     }
 
     private fun updateBackground(view: View) {
-        if (isBgHidden) view.setBackgroundColor(Color.TRANSPARENT)
-        else {
+        val shape = GradientDrawable()
+        shape.cornerRadius = 35f // کناروں کی گولائی
+        if (isBgHidden) {
+            shape.setColor(Color.TRANSPARENT)
+        } else {
             val alpha = (userOpacity * 255).toInt()
-            view.setBackgroundColor(Color.argb(alpha, Color.red(userBgColor), Color.green(userBgColor), Color.blue(userBgColor)))
+            shape.setColor(Color.argb(alpha, Color.red(userBgColor), Color.green(userBgColor), Color.blue(userBgColor)))
         }
+        view.background = shape
+    }
+
+    private fun startMainLoop() {
+        lastTickTime = SystemClock.elapsedRealtime()
+        handler.post(object : Runnable {
+            override fun run() {
+                if (isPlaying) {
+                    val now = SystemClock.elapsedRealtime()
+                    currentTimeMs += (now - lastTickTime)
+                    lastTickTime = now
+                    updateUI()
+                } else {
+                    lastTickTime = SystemClock.elapsedRealtime()
+                }
+                handler.postDelayed(this, 100)
+            }
+        })
     }
 
     private fun updateUI() {
@@ -208,7 +231,6 @@ class SubtitleService : Service() {
         return (parts[0].trim().toLong() * 3600000) + (parts[1].trim().toLong() * 60000) + (parts[2].trim().toDouble() * 1000).toLong()
     }
 
-    private fun startMainLoop() { handler.post(object : Runnable { override fun run() { if (isPlaying) { currentTimeMs += 100; updateUI() }; handler.postDelayed(this, 100) } }) }
     private fun startAutoSaveTask() { handler.postDelayed(object : Runnable { override fun run() { getSharedPreferences("srt_prefs", MODE_PRIVATE).edit().putLong("last_time", currentTimeMs).apply(); handler.postDelayed(this, 5000) } }, 5000) }
     private fun createNotificationChannel() { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) { val channel = NotificationChannel("srt_service", "SRT Player", NotificationManager.IMPORTANCE_LOW); getSystemService(NotificationManager::class.java).createNotificationChannel(channel) } }
     override fun onDestroy() { getSharedPreferences("srt_prefs", MODE_PRIVATE).edit().putLong("last_time", currentTimeMs).apply(); handler.removeCallbacksAndMessages(null); seekHandler.removeCallbacksAndMessages(null); floatingView?.let { windowManager.removeView(it) }; super.onDestroy() }
