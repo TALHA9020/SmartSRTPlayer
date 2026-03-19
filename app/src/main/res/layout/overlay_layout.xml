@@ -3,54 +3,60 @@
     android:layout_width="wrap_content"
     android:layout_height="wrap_content">
 
-    <!-- سبٹائٹل ایریا (پوائنٹ 5، 6، 8، 9) -->
+    <!-- سبٹائٹل کنٹینر (پوائنٹ 5، 6، 8) -->
     <LinearLayout
         android:id="@+id/subtitle_container"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:minWidth="200dp"
-        android:padding="10dp"
-        android:background="#80000000"
+        android:minWidth="250dp"
+        android:padding="12dp"
+        android:background="#CC000000" 
         android:gravity="center"
         android:orientation="vertical">
 
+        <!-- ٹائمر (پوائنٹ 4) -->
         <TextView
             android:id="@+id/timer_display"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="00:00:00"
-            android:textColor="#FFFFFF"
-            android:textSize="14sp" />
+            android:textColor="#FFEB3B"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="4dp" />
 
+        <!-- سبٹائٹل ٹیکسٹ (پوائنٹ 5) -->
         <TextView
             android:id="@+id/subtitle_text"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="اردو سبٹائٹل"
+            android:text="اردو سبٹائٹل یہاں نظر آئے گا"
             android:textColor="#FFFFFF"
-            android:textSize="22sp"
+            android:textSize="24sp"
             android:textAlignment="center"
-            android:gravity="center" />
+            android:gravity="center"
+            android:lineSpacingExtra="4dp" />
     </LinearLayout>
 
-    <!-- کنٹرولز ایریا (پوائنٹ 1، 2، 3، 7) -->
+    <!-- کنٹرولز (پوائنٹ 1، 2، 3، 7، 9) -->
     <LinearLayout
         android:id="@+id/controls_layout"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_below="@id/subtitle_container"
         android:layout_centerHorizontal="true"
-        android:background="#CC111111"
+        android:layout_marginTop="8dp"
+        android:background="#EE111111"
         android:orientation="horizontal"
-        android:padding="5dp"
-        android:layout_marginTop="5dp">
+        android:padding="6dp"
+        android:gravity="center">
 
-        <ImageButton android:id="@+id/btn_offset_minus" android:layout_width="35dp" android:layout_height="35dp" android:src="@android:drawable/ic_menu_minus" />
-        <ImageButton android:id="@+id/btn_backward" android:layout_width="40dp" android:layout_height="40dp" android:src="@android:drawable/ic_media_rew" />
-        <ImageButton android:id="@+id/btn_play_pause" android:layout_width="50dp" android:layout_height="50dp" android:src="@android:drawable/ic_media_play" />
-        <ImageButton android:id="@+id/btn_forward" android:layout_width="40dp" android:layout_height="40dp" android:src="@android:drawable/ic_media_ff" />
-        <ImageButton android:id="@+id/btn_offset_plus" android:layout_width="35dp" android:layout_height="35dp" android:src="@android:drawable/ic_menu_add" />
-        <ImageButton android:id="@+id/btn_hide_bg" android:layout_width="35dp" android:layout_height="35dp" android:src="@android:drawable/ic_menu_view" />
+        <ImageButton android:id="@+id/btn_offset_minus" android:layout_width="35dp" android:layout_height="35dp" android:src="@android:drawable/ic_menu_minus" android:background="?android:attr/selectableItemBackground" android:contentDescription="Offset -" />
+        <ImageButton android:id="@+id/btn_backward" android:layout_width="45dp" android:layout_height="45dp" android:src="@android:drawable/ic_media_rew" android:background="?android:attr/selectableItemBackground" />
+        <ImageButton android:id="@+id/btn_play_pause" android:layout_width="55dp" android:layout_height="55dp" android:src="@android:drawable/ic_media_play" android:background="?android:attr/selectableItemBackground" />
+        <ImageButton android:id="@+id/btn_forward" android:layout_width="45dp" android:layout_height="45dp" android:src="@android:drawable/ic_media_ff" android:background="?android:attr/selectableItemBackground" />
+        <ImageButton android:id="@+id/btn_offset_plus" android:layout_width="35dp" android:layout_height="35dp" android:src="@android:drawable/ic_menu_add" android:background="?android:attr/selectableItemBackground" />
+        <ImageButton android:id="@+id/btn_hide_bg" android:layout_width="35dp" android:layout_height="35dp" android:src="@android:drawable/ic_menu_view" android:background="?android:attr/selectableItemBackground" android:tint="#FFEB3B" />
+
     </LinearLayout>
-
 </RelativeLayout>
