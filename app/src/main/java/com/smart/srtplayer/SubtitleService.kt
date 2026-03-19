@@ -20,26 +20,47 @@ class SubtitleService : Service() {
     private var timeOffset: Long = 0
     private var isBgHidden = false
     
-    // فاسٹ فارورڈ/بیک ورڈ کے لیے
     private var isSeeking = false
-    private var seekSpeed = 1000L // شروع میں 1 سیکنڈ
+    private var seekSpeed = 1000L
+    private var seekDirection = 1 
+
     private val seekRunnable = object : Runnable {
         override fun run() {
             if (isSeeking) {
                 startTime -= seekDirection * seekSpeed
-                seekSpeed += 500 // جتنی دیر پریس رکھیں گے سپیڈ بڑھے گی
+                seekSpeed += 500
                 handler.postDelayed(this, 100)
             }
         }
     }
-    private var seekDirection = 1 // 1 for forward, -1 for backward
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
-        startForeground(1, createNotification())
+        createNotificationChannel()
+        
+        // اینڈرائیڈ 14 کے لیے مخصوص طریقہ
+        val notification = createNotification()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(1, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
+        } else {
+            startForeground(1, notification)
+        }
+        
         setupFloatingWindow()
+    }
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                "srt_player_channel",
+                "Subtitle Service",
+                NotificationManager.IMPORTANCE_LOW
+            )
+            val manager = getSystemService(NotificationManager::class.java)
+            manager?.createNotificationChannel(channel)
+        }
     }
 
     private fun setupFloatingWindow() {
@@ -52,17 +73,18 @@ class SubtitleService : Service() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP; y = 150 }
+        ).apply { 
+            gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
+            y = 150 
+        }
 
         val controls = floatingView!!.findViewById<View>(R.id.controls_layout)
         val subtitleText = floatingView!!.findViewById<TextView>(R.id.subtitle_text)
 
-        // --- ٹیپ ٹو ٹوگل بٹنز ---
         subtitleText.setOnClickListener {
             controls.visibility = if (controls.visibility == View.VISIBLE) View.GONE else View.VISIBLE
         }
 
-        // --- ڈریگنگ لاجک ---
         floatingView?.setOnTouchListener(object : View.OnTouchListener {
             private var initialX = 0; private var initialY = 0
             private var initialTouchX = 0f; private var initialTouchY = 0f
@@ -76,7 +98,7 @@ class SubtitleService : Service() {
                     MotionEvent.ACTION_MOVE -> {
                         params.x = initialX + (event.rawX - initialTouchX).toInt()
                         params.y = initialY + (event.rawY - initialTouchY).toInt()
-                        windowManager.updateViewLayout(floatingView, params)
+                        try { windowManager.updateViewLayout(floatingView, params) } catch (e: Exception) {}
                         return true
                     }
                 }
@@ -84,11 +106,9 @@ class SubtitleService : Service() {
             }
         })
 
-        // --- فارورڈ / بیک ورڈ بٹنز (Long Press) ---
         setupSeekButton(R.id.btn_forward, 1)
         setupSeekButton(R.id.btn_backward, -1)
 
-        // --- باقی بٹنز ---
         floatingView?.apply {
             findViewById<ImageButton>(R.id.btn_play_pause).setOnClickListener { togglePlay(it as ImageButton) }
             findViewById<ImageButton>(R.id.btn_close).setOnClickListener { stopSelf() }
@@ -174,7 +194,10 @@ class SubtitleService : Service() {
     }
 
     private fun openPicker(type: String) {
-        val intent = Intent(this, FilePickerActivity::class.java).putExtra("type", type).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val intent = Intent(this, FilePickerActivity::class.java).apply {
+            putExtra("type", type)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
         startActivity(intent)
     }
 
@@ -183,11 +206,20 @@ class SubtitleService : Service() {
             elapsedAtPause = 0; timeOffset = 0; isPlaying = false
             floatingView?.findViewById<ImageButton>(R.id.btn_play_pause)?.setImageResource(android.R.drawable.ic_media_play)
         }
-        updateUI(); return START_STICKY
+        updateUI()
+        return START_STICKY
     }
 
-    private fun createNotification() = NotificationCompat.Builder(this, "srt_player_channel")
-        .setSmallIcon(android.R.drawable.ic_media_play).setContentTitle("Smart SRT Player").build()
+    private fun createNotification(): Notification {
+        return NotificationCompat.Builder(this, "srt_player_channel")
+            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setContentTitle("Smart SRT Player Running")
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+    }
 
-    override fun onDestroy() { super.onDestroy(); floatingView?.let { windowManager.removeView(it) } }
+    override fun onDestroy() {
+        super.onDestroy()
+        floatingView?.let { windowManager.removeView(it) }
+    }
 }
