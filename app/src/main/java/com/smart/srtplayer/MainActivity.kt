@@ -34,15 +34,10 @@ import java.io.FileOutputStream
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent {
-            MaterialTheme {
-                MainScreen()
-            }
-        }
+        setContent { MaterialTheme { MainScreen() } }
     }
 }
 
-// پری ویو کے لیے فونٹ لوڈ کرنے کا فنکشن
 fun loadPreviewTypeface(context: Context, uri: Uri?): Typeface {
     if (uri == null) return Typeface.DEFAULT
     return try {
@@ -51,21 +46,19 @@ fun loadPreviewTypeface(context: Context, uri: Uri?): Typeface {
         val outputStream = FileOutputStream(tempFile)
         inputStream?.use { input -> outputStream.use { output -> input.copyTo(output) } }
         Typeface.createFromFile(tempFile)
-    } catch (e: Exception) {
-        Typeface.DEFAULT
-    }
+    } catch (e: Exception) { Typeface.DEFAULT }
 }
 
 @Composable
 fun MainScreen() {
     val context = LocalContext.current
-    val prefs = context.getSharedPreferences("srt_prefs", Context.MODE_PRIVATE)
+    val prefs = remember { context.getSharedPreferences("srt_prefs", Context.MODE_PRIVATE) }
 
-    // سٹیٹس (States)
-    var subFontSize by remember { mutableStateOf(24f) }
-    var bgOpacity by remember { mutableStateOf(0.7f) }
-    var textColor by remember { mutableStateOf(Color.White) }
-    var bgColor by remember { mutableStateOf(Color.Black) }
+    // سیٹنگز کو یاد رکھنے کے لیے Prefs سے ویلیوز اٹھائیں
+    var subFontSize by remember { mutableStateOf(prefs.getFloat("font_size", 24f)) }
+    var bgOpacity by remember { mutableStateOf(prefs.getFloat("bg_opacity", 0.7f)) }
+    var textColor by remember { mutableStateOf(Color(prefs.getInt("text_color", Color.White.toArgb()))) }
+    var bgColor by remember { mutableStateOf(Color(prefs.getInt("bg_color", Color.Black.toArgb()))) }
     
     var srtUri by remember { mutableStateOf<Uri?>(null) }
     var fontUri by remember { mutableStateOf<Uri?>(null) }
@@ -73,35 +66,22 @@ fun MainScreen() {
     var showTextColorPicker by remember { mutableStateOf(false) }
     var showBgColorPicker by remember { mutableStateOf(false) }
 
-    // ایپ کھلتے ہی پرانی سیٹنگز لوڈ کریں
     LaunchedEffect(Unit) {
         prefs.getString("srt_uri", null)?.let { srtUri = Uri.parse(it) }
         prefs.getString("font_uri", null)?.let { fontUri = Uri.parse(it) }
     }
 
-    // لائیو فونٹ پری ویو کے لیے
     val customTypeface = remember(fontUri) { loadPreviewTypeface(context, fontUri) }
 
-    // سروس کو ٹائمر ری سیٹ کرنے کی کمانڈ بھیجنا
-    fun sendResetCommand() {
-        val intent = Intent(context, SubtitleService::class.java).apply {
-            action = "ACTION_RESET_TIMER"
-        }
-        context.startService(intent)
-    }
-
-    // SRT فائل سلیکٹر
     val srtLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let {
             context.contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             srtUri = it
             prefs.edit().putString("srt_uri", it.toString()).putLong("last_time", 0L).apply()
-            sendResetCommand() // نئی فائل پر ٹائمر زیرو کریں
-            Toast.makeText(context, "New SRT Loaded & Timer Reset", Toast.LENGTH_SHORT).show()
+            context.startService(Intent(context, SubtitleService::class.java).apply { action = "ACTION_RESET_TIMER" })
         }
     }
 
-    // فونٹ فائل سلیکٹر
     val fontLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let {
             context.contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -111,178 +91,88 @@ fun MainScreen() {
     }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-            .verticalScroll(rememberScrollState()),
+        modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text(
-            "Smart SRT Player",
-            style = MaterialTheme.typography.headlineMedium,
-            color = Color(0xFF2E7D32),
-            fontWeight = FontWeight.Bold
-        )
+        Text("Smart SRT Player", style = MaterialTheme.typography.headlineMedium, color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
 
-        // --- لائیو پری ویو باکس ---
+        // پری ویو باکس (گول کنارے)
         Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(120.dp)
-                .background(Color.Gray.copy(0.1f), RoundedCornerShape(12.dp))
-                .border(1.dp, Color.LightGray, RoundedCornerShape(12.dp)),
+            modifier = Modifier.fillMaxWidth().height(120.dp).background(Color.Gray.copy(0.1f), RoundedCornerShape(12.dp)).border(1.dp, Color.LightGray, RoundedCornerShape(12.dp)),
             contentAlignment = Alignment.Center
         ) {
             Column(
-                modifier = Modifier
-                    .wrapContentSize()
-                    .background(bgColor.copy(alpha = bgOpacity), RoundedCornerShape(8.dp))
-                    .padding(12.dp),
+                modifier = Modifier.wrapContentSize().background(bgColor.copy(alpha = bgOpacity), RoundedCornerShape(15.dp)).padding(12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text(
-                    "00:00:45", 
-                    color = textColor, 
-                    fontSize = 14.sp, 
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    "اردو سبٹائٹل کا نمونہ",
-                    color = textColor,
-                    fontSize = subFontSize.sp,
-                    textAlign = TextAlign.Center,
-                    fontFamily = FontFamily(customTypeface)
-                )
+                Text("00:00:45", color = textColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text("اردو فونٹ پری ویو", color = textColor, fontSize = subFontSize.sp, textAlign = TextAlign.Center, fontFamily = FontFamily(customTypeface))
             }
         }
 
-        // --- فائل سلیکشن بٹنز ---
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { srtLauncher.launch(arrayOf("*/*")) }, modifier = Modifier.weight(1f)) {
-                Text(if (srtUri == null) "Select SRT" else "Change SRT")
-            }
-            Button(onClick = { fontLauncher.launch(arrayOf("*/*")) }, modifier = Modifier.weight(1f)) {
-                Text(if (fontUri == null) "Select Font" else "Change Font")
-            }
+            Button(onClick = { srtLauncher.launch(arrayOf("*/*")) }, modifier = Modifier.weight(1f)) { Text("Set SRT") }
+            Button(onClick = { fontLauncher.launch(arrayOf("*/*")) }, modifier = Modifier.weight(1f)) { Text("Set Font") }
         }
 
-        // --- ٹائمر ری سیٹ بٹن ---
-        OutlinedButton(
-            onClick = { 
-                prefs.edit().putLong("last_time", 0L).apply()
-                sendResetCommand()
-                Toast.makeText(context, "Timer Reset to Zero", Toast.LENGTH_SHORT).show()
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Reset Timer to 00:00:00")
-        }
+        Text("Font Size: ${subFontSize.toInt()}sp")
+        Slider(value = subFontSize, valueRange = 16f..60f, onValueChange = { 
+            subFontSize = it
+            prefs.edit().putFloat("font_size", it).apply()
+        })
 
-        // --- سیٹنگز کنٹرولز ---
-        Text("Font Size: ${subFontSize.toInt()}sp", fontWeight = FontWeight.Medium)
-        Slider(value = subFontSize, valueRange = 16f..60f, onValueChange = { subFontSize = it })
+        Text("Opacity: ${(bgOpacity * 100).toInt()}%")
+        Slider(value = bgOpacity, valueRange = 0f..1f, onValueChange = { 
+            bgOpacity = it
+            prefs.edit().putFloat("bg_opacity", it).apply()
+        })
 
-        Text("Background Opacity: ${(bgOpacity * 100).toInt()}%", fontWeight = FontWeight.Medium)
-        Slider(value = bgOpacity, valueRange = 0f..1f, onValueChange = { bgOpacity = it })
-
-        // کلر روز (Color Rows)
         ColorRow("Text Color", textColor) { showTextColorPicker = true }
-        ColorRow("Background Color", bgColor) { showBgColorPicker = true }
+        ColorRow("BG Color", bgColor) { showBgColorPicker = true }
 
-        Spacer(Modifier.height(10.dp))
-
-        // --- اسٹارٹ پلیئر بٹن ---
         Button(
             onClick = {
                 if (!Settings.canDrawOverlays(context)) {
-                    val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
-                    context.startActivity(intent)
-                } else if (srtUri == null) {
-                    Toast.makeText(context, "Please select an SRT file first", Toast.LENGTH_SHORT).show()
+                    context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")))
                 } else {
                     val intent = Intent(context, SubtitleService::class.java).apply {
-                        putExtra("fontSize", subFontSize)
-                        putExtra("bgColor", bgColor.toArgb())
-                        putExtra("textColor", textColor.toArgb())
-                        putExtra("opacity", bgOpacity)
-                        putExtra("srtUri", srtUri.toString())
-                        fontUri?.let { putExtra("fontUri", it.toString()) }
+                        putExtra("fontSize", subFontSize); putExtra("bgColor", bgColor.toArgb())
+                        putExtra("textColor", textColor.toArgb()); putExtra("opacity", bgOpacity)
+                        putExtra("srtUri", srtUri.toString()); fontUri?.let { putExtra("fontUri", it.toString()) }
                     }
                     context.startForegroundService(intent)
                 }
             },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(60.dp),
-            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth().height(60.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
-        ) {
-            Text("LAUNCH FLOATING PLAYER", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-        }
+        ) { Text("LAUNCH PLAYER", fontWeight = FontWeight.Bold) }
     }
 
-    // کلر پیکر ڈائیلاگز
-    if (showTextColorPicker) {
-        SimpleColorPicker({ textColor = it; showTextColorPicker = false }, "Text Color")
-    }
-    if (showBgColorPicker) {
-        SimpleColorPicker({ bgColor = it; showBgColorPicker = false }, "Background Color")
-    }
+    if (showTextColorPicker) SimpleColorPicker({ textColor = it; prefs.edit().putInt("text_color", it.toArgb()).apply(); showTextColorPicker = false }, "Text Color")
+    if (showBgColorPicker) SimpleColorPicker({ bgColor = it; prefs.edit().putInt("bg_color", it.toArgb()).apply(); showBgColorPicker = false }, "BG Color")
 }
 
 @Composable
 fun ColorRow(label: String, color: Color, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(label, modifier = Modifier.weight(1f), fontWeight = FontWeight.Medium)
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .background(color)
-                .border(2.dp, Color.LightGray, CircleShape)
-        )
+    Row(modifier = Modifier.fillMaxWidth().clickable { onClick() }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, modifier = Modifier.weight(1f))
+        Box(modifier = Modifier.size(36.dp).clip(CircleShape).background(color).border(2.dp, Color.LightGray, CircleShape))
     }
 }
 
 @Composable
 fun SimpleColorPicker(onColorSelected: (Color) -> Unit, title: String) {
-    val colors = listOf(
-        Color.White, Color.Black, Color.Yellow, Color.Red, 
-        Color.Green, Color.Blue, Color.Cyan, Color.Magenta,
-        Color(0xFFFF9800), Color(0xFF795548), Color(0xFF9C27B0), Color.Gray
-    )
+    val colors = listOf(Color.White, Color.Black, Color.Yellow, Color.Red, Color.Green, Color.Blue, Color.Cyan, Color.Magenta, Color.Gray)
     AlertDialog(
         onDismissRequest = { },
         title = { Text(title) },
         text = {
-            Column {
-                repeat(3) { rowIndex ->
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                        repeat(4) { colIndex ->
-                            val color = colors[rowIndex * 4 + colIndex]
-                            Box(
-                                Modifier
-                                    .size(45.dp)
-                                    .padding(4.dp)
-                                    .clip(CircleShape)
-                                    .background(color)
-                                    .border(1.dp, Color.Black, CircleShape)
-                                    .clickable { onColorSelected(color) }
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                colors.forEach { color ->
+                    Box(Modifier.size(45.dp).padding(4.dp).clip(CircleShape).background(color).border(1.dp, Color.Black, CircleShape).clickable { onColorSelected(color) })
                 }
             }
         },
-        confirmButton = {
-            TextButton(onClick = { onColorSelected(Color.Transparent) }) { Text("Close") }
-        }
+        confirmButton = { TextButton(onClick = { onColorSelected(Color.Transparent) }) { Text("Close") } }
     )
 }
