@@ -30,7 +30,10 @@ class SubtitleService : Service() {
     private var lastTickTime: Long = 0
     private var timeOffset: Long = 0
     private var subtitleList = mutableListOf<SubtitleItem>()
+    
+    // لونگ پریس کے لیے متغیرات
     private var currentJump: Long = 1000L 
+    private val SEEK_INTERVAL = 100L // ہر 100ms بعد وقت بدلے گا
 
     private var userBgColor: Int = Color.BLACK
     private var userOpacity: Float = 0.7f
@@ -62,18 +65,6 @@ class SubtitleService : Service() {
         return START_NOT_STICKY
     }
 
-    private fun loadCustomFont(uriStr: String?): Typeface? {
-        if (uriStr.isNullOrEmpty()) return null
-        return try {
-            val uri = Uri.parse(uriStr)
-            val inputStream = contentResolver.openInputStream(uri)
-            val tempFile = File(cacheDir, "service_font.ttf")
-            val outputStream = FileOutputStream(tempFile)
-            inputStream?.use { input -> outputStream.use { output -> input.copyTo(output) } }
-            Typeface.createFromFile(tempFile)
-        } catch (e: Exception) { null }
-    }
-
     @SuppressLint("ClickableViewAccessibility")
     private fun setupFloatingWindow(intent: Intent?, fontUriStr: String?) {
         if (floatingView != null) {
@@ -95,6 +86,7 @@ class SubtitleService : Service() {
         val offsetReset = floatingView!!.findViewById<ImageButton>(R.id.btn_offset_reset)
         val hideBgBtn = floatingView!!.findViewById<ImageButton>(R.id.btn_hide_bg)
 
+        // فونٹ اور تھیم سیٹ اپ
         loadCustomFont(fontUriStr)?.let { subText.typeface = it }
         intent?.let {
             subText.textSize = it.getFloatExtra("fontSize", 24f)
@@ -111,7 +103,7 @@ class SubtitleService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply { gravity = Gravity.TOP; y = 300 }
 
-        // ڈریگنگ اور ٹچ ہینڈلر
+        // ڈریگنگ اور ٹیپ ٹو شو/ہائیڈ کنٹرولز
         container.setOnTouchListener(object : View.OnTouchListener {
             private var x = 0; private var y = 0; private var px = 0f; private var py = 0f
             override fun onTouch(v: View, e: MotionEvent): Boolean {
@@ -122,7 +114,7 @@ class SubtitleService : Service() {
                         windowManager.updateViewLayout(floatingView, params); return true
                     }
                     MotionEvent.ACTION_UP -> {
-                        if (Math.abs(e.rawX - px) < 10) {
+                        if (Math.abs(e.rawX - px) < 10 && Math.abs(e.rawY - py) < 10) {
                             isControlsVisible = !isControlsVisible
                             controls.visibility = if (isControlsVisible) View.VISIBLE else View.GONE
                             timerLayout.visibility = if (isControlsVisible) View.VISIBLE else View.GONE
@@ -134,20 +126,63 @@ class SubtitleService : Service() {
             }
         })
 
-        // بٹن ایکشنز
+        // --- درست لونگ پریس لاجک (فارورڈ/بیک ورڈ) ---
+        fun createSeekRunnable(isForward: Boolean): Runnable = object : Runnable {
+            override fun run() {
+                if (isForward) currentTimeMs += currentJump 
+                else currentTimeMs = maxOf(0, currentTimeMs - currentJump)
+                
+                // رفتار بڑھائیں (Max 10 seconds per tick)
+                if (currentJump < 10000L) currentJump = (currentJump * 1.15).toLong()
+                
+                updateUI()
+                seekHandler.postDelayed(this, SEEK_INTERVAL)
+            }
+        }
+
+        val fwdRunnable = createSeekRunnable(true)
+        val bwdRunnable = createSeekRunnable(false)
+
+        forwardBtn.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    currentJump = 1000L // ری سیٹ سپیڈ
+                    seekHandler.post(fwdRunnable)
+                    forwardBtn.isPressed = true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    seekHandler.removeCallbacks(fwdRunnable)
+                    forwardBtn.isPressed = false
+                }
+            }
+            true
+        }
+
+        backwardBtn.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    currentJump = 1000L
+                    seekHandler.post(bwdRunnable)
+                    backwardBtn.isPressed = true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    seekHandler.removeCallbacks(bwdRunnable)
+                    backwardBtn.isPressed = false
+                }
+            }
+            true
+        }
+
+        // دیگر بٹنز
         playBtn.setOnClickListener { 
             isPlaying = !isPlaying
             lastTickTime = SystemClock.elapsedRealtime()
             playBtn.setImageResource(if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play) 
         }
         
-        forwardBtn.setOnClickListener { currentTimeMs += 5000; updateUI() }
-        backwardBtn.setOnClickListener { currentTimeMs = maxOf(0, currentTimeMs - 5000); updateUI() }
-        
         offsetPlus.setOnClickListener { timeOffset += 500; updateUI() }
         offsetMinus.setOnClickListener { timeOffset -= 500; updateUI() }
         offsetReset.setOnClickListener { timeOffset = 0; updateUI() }
-        
         hideBgBtn.setOnClickListener { isBgHidden = !isBgHidden; updateBackground(container) }
         closeBtn.setOnClickListener { stopSelf() }
 
@@ -157,7 +192,7 @@ class SubtitleService : Service() {
 
     private fun updateBackground(view: View) {
         val shape = GradientDrawable()
-        shape.cornerRadius = 50f // ہموار گول کنارے
+        shape.cornerRadius = 50f
         if (isBgHidden) shape.setColor(Color.TRANSPARENT)
         else {
             val alpha = (userOpacity * 255).toInt()
@@ -192,12 +227,22 @@ class SubtitleService : Service() {
             val sign = if (timeOffset > 0) "+" else ""
             offsetText?.text = "($sign${timeOffset / 1000.0}s)"
             offsetText?.visibility = View.VISIBLE
-        } else {
-            offsetText?.visibility = View.GONE
-        }
+        } else { offsetText?.visibility = View.GONE }
 
         val currentSub = subtitleList.find { (currentTimeMs + timeOffset) in it.startTime..it.endTime }
         floatingView?.findViewById<TextView>(R.id.subtitle_text)?.text = currentSub?.text ?: ""
+    }
+
+    private fun loadCustomFont(uriStr: String?): Typeface? {
+        if (uriStr.isNullOrEmpty()) return null
+        return try {
+            val uri = Uri.parse(uriStr)
+            val inputStream = contentResolver.openInputStream(uri)
+            val tempFile = File(cacheDir, "service_font.ttf")
+            val outputStream = FileOutputStream(tempFile)
+            inputStream?.use { input -> outputStream.use { output -> input.copyTo(output) } }
+            Typeface.createFromFile(tempFile)
+        } catch (e: Exception) { null }
     }
 
     private fun parseSrt(uri: Uri) {
@@ -234,6 +279,7 @@ class SubtitleService : Service() {
     override fun onDestroy() {
         getSharedPreferences("srt_prefs", MODE_PRIVATE).edit().putLong("last_time", currentTimeMs).apply()
         handler.removeCallbacksAndMessages(null)
+        seekHandler.removeCallbacksAndMessages(null)
         floatingView?.let { try { windowManager.removeView(it) } catch (e: Exception) {} }
         super.onDestroy()
     }
