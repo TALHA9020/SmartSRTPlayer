@@ -29,11 +29,8 @@ class SubtitleService : Service() {
     private var timeOffset: Long = 0
     private var subtitleList = mutableListOf<SubtitleItem>()
 
-    // لونگ پریس سپیڈ کے لیے
+    // غیر محدود رفتار کے لیے
     private var currentJump: Long = 1000L 
-
-    private var userBgColor: Int = Color.BLACK
-    private var userOpacity: Float = 0.7f
 
     override fun onBind(intent: Intent?) = null
 
@@ -42,11 +39,18 @@ class SubtitleService : Service() {
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         createNotificationChannel()
         startForeground(1, NotificationCompat.Builder(this, "srt_service")
-            .setContentTitle("SRT Player is Running")
+            .setContentTitle("SRT Player Active")
             .setSmallIcon(android.R.drawable.ic_media_play).build())
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // چیک کریں کہ کیا ری سیٹ کی کمانڈ آئی ہے
+        if (intent?.action == "ACTION_RESET_TIMER") {
+            currentTimeMs = 0
+            updateUI()
+            return START_NOT_STICKY
+        }
+
         val prefs = getSharedPreferences("srt_prefs", MODE_PRIVATE)
         val srtUriStr = intent?.getStringExtra("srtUri") ?: prefs.getString("srt_uri", null)
         val fontUriStr = intent?.getStringExtra("fontUri") ?: prefs.getString("font_uri", null)
@@ -66,11 +70,9 @@ class SubtitleService : Service() {
             val inputStream = contentResolver.openInputStream(uri)
             val tempFile = File(cacheDir, "temp_font.ttf")
             val outputStream = FileOutputStream(tempFile)
-            inputStream?.use { input ->
-                outputStream.use { output -> input.copyTo(output) }
-            }
+            inputStream?.use { input -> outputStream.use { output -> input.copyTo(output) } }
             Typeface.createFromFile(tempFile)
-        } catch (e: Exception) { e.printStackTrace(); null }
+        } catch (e: Exception) { null }
     }
 
     private fun parseSrt(uri: Uri) {
@@ -92,7 +94,7 @@ class SubtitleService : Service() {
                     }
                 }
             }
-        } catch (e: Exception) { e.printStackTrace() }
+        } catch (e: Exception) { }
     }
 
     private fun srtTimeToMs(time: String): Long {
@@ -117,18 +119,16 @@ class SubtitleService : Service() {
         val forwardBtn = floatingView!!.findViewById<ImageButton>(R.id.btn_forward)
         val backwardBtn = floatingView!!.findViewById<ImageButton>(R.id.btn_backward)
         val closeBtn = floatingView!!.findViewById<ImageButton>(R.id.btn_close_service)
-        val offsetPlus = floatingView!!.findViewById<ImageButton>(R.id.btn_offset_plus)
-        val offsetMinus = floatingView!!.findViewById<ImageButton>(R.id.btn_offset_minus)
-        val hideBgBtn = floatingView!!.findViewById<ImageButton>(R.id.btn_hide_bg)
 
         loadCustomFont(fontUriStr)?.let { subText.typeface = it }
 
         intent?.let {
             subText.textSize = it.getFloatExtra("fontSize", 24f)
             subText.setTextColor(it.getIntExtra("textColor", Color.WHITE))
-            userBgColor = it.getIntExtra("bgColor", Color.BLACK)
-            userOpacity = it.getFloatExtra("opacity", 0.7f)
-            updateBackground(container)
+            val userBgColor = it.getIntExtra("bgColor", Color.BLACK)
+            val userOpacity = it.getFloatExtra("opacity", 0.7f)
+            val alpha = (userOpacity * 255).toInt()
+            container.setBackgroundColor(Color.argb(alpha, Color.red(userBgColor), Color.green(userBgColor), Color.blue(userBgColor)))
         }
 
         val params = WindowManager.LayoutParams(
@@ -138,7 +138,6 @@ class SubtitleService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply { gravity = Gravity.TOP; y = 300 }
 
-        // ڈریگ اور ٹوگل لاجک (ٹائمر کو بھی شامل کیا گیا)
         container.setOnTouchListener(object : View.OnTouchListener {
             private var x = 0; private var y = 0; private var px = 0f; private var py = 0f
             override fun onTouch(v: View, e: MotionEvent): Boolean {
@@ -161,16 +160,16 @@ class SubtitleService : Service() {
             }
         })
 
-        // متغیر رفتار کے ساتھ لونگ پریس لاجک
+        // غیر محدود اور تیزی سے بڑھتی ہوئی سپیڈ
         fun createSeekRunnable(isForward: Boolean): Runnable = object : Runnable {
             override fun run() {
                 if (isForward) currentTimeMs += currentJump else currentTimeMs = maxOf(0, currentTimeMs - currentJump)
                 
-                // رفتار بڑھانے کی لاجک: ہر قدم پر 500ms کا اضافہ (زیادہ سے زیادہ 10 سیکنڈ فی سٹیپ تک)
-                if (currentJump < 10000L) currentJump += 500L
+                // غیر محدود اضافہ: ہر سٹیپ پر پچھلی سپیڈ کا 20% مزید بڑھے گا
+                currentJump = (currentJump * 1.2).toLong() 
                 
                 updateUI()
-                seekHandler.postDelayed(this, 150) // ہر 150ms بعد اگلا قدم
+                seekHandler.postDelayed(this, 100) 
             }
         }
 
@@ -179,10 +178,7 @@ class SubtitleService : Service() {
 
         forwardBtn.setOnTouchListener { _, event ->
             when (event.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    currentJump = 1000L // ری سیٹ سپیڈ
-                    seekHandler.post(forwardRunnable)
-                }
+                MotionEvent.ACTION_DOWN -> { currentJump = 1000L; seekHandler.post(forwardRunnable) }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> seekHandler.removeCallbacks(forwardRunnable)
             }
             true
@@ -190,10 +186,7 @@ class SubtitleService : Service() {
 
         backwardBtn.setOnTouchListener { _, event ->
             when (event.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    currentJump = 1000L // ری سیٹ سپیڈ
-                    seekHandler.post(backwardRunnable)
-                }
+                MotionEvent.ACTION_DOWN -> { currentJump = 1000L; seekHandler.post(backwardRunnable) }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> seekHandler.removeCallbacks(backwardRunnable)
             }
             true
@@ -204,11 +197,7 @@ class SubtitleService : Service() {
             playBtn.setImageResource(if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play)
         }
 
-        offsetPlus.setOnClickListener { timeOffset += 500; updateUI() }
-        offsetMinus.setOnClickListener { timeOffset -= 500; updateUI() }
-        hideBgBtn.setOnClickListener { isBgHidden = !isBgHidden; updateBackground(container) }
         closeBtn.setOnClickListener { stopSelf() }
-
         windowManager.addView(floatingView, params)
         startMainLoop()
     }
@@ -216,39 +205,26 @@ class SubtitleService : Service() {
     private fun startMainLoop() {
         handler.post(object : Runnable {
             override fun run() {
-                if (isPlaying) {
-                    currentTimeMs += 100
-                    updateUI()
-                }
+                if (isPlaying) { currentTimeMs += 100; updateUI() }
                 handler.postDelayed(this, 100)
             }
         })
     }
 
     private fun updateUI() {
-        val subSyncTime = currentTimeMs + timeOffset
         val s = (currentTimeMs / 1000) % 60
         val m = (currentTimeMs / 60000) % 60
         val h = (currentTimeMs / 3600000) % 24
         floatingView?.findViewById<TextView>(R.id.timer_display)?.text = String.format("%02d:%02d:%02d", h, m, s)
         
-        val currentSub = subtitleList.find { subSyncTime in it.startTime..it.endTime }
+        val currentSub = subtitleList.find { (currentTimeMs + timeOffset) in it.startTime..it.endTime }
         floatingView?.findViewById<TextView>(R.id.subtitle_text)?.text = currentSub?.text ?: ""
-    }
-
-    private fun updateBackground(view: View) {
-        if (isBgHidden) view.setBackgroundColor(Color.TRANSPARENT)
-        else {
-            val alpha = (userOpacity * 255).toInt()
-            view.setBackgroundColor(Color.argb(alpha, Color.red(userBgColor), Color.green(userBgColor), Color.blue(userBgColor)))
-        }
     }
 
     private fun startAutoSaveTask() {
         handler.postDelayed(object : Runnable {
             override fun run() {
-                getSharedPreferences("srt_prefs", MODE_PRIVATE).edit()
-                    .putLong("last_time", currentTimeMs).apply()
+                getSharedPreferences("srt_prefs", MODE_PRIVATE).edit().putLong("last_time", currentTimeMs).apply()
                 handler.postDelayed(this, 5000)
             }
         }, 5000)
