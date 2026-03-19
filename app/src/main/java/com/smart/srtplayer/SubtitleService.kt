@@ -3,7 +3,6 @@ package com.smart.srtplayer
 import android.annotation.SuppressLint
 import android.app.*
 import android.content.*
-import android.content.pm.ServiceInfo
 import android.graphics.*
 import android.os.*
 import android.view.*
@@ -50,18 +49,18 @@ class SubtitleService : Service() {
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         ).apply { 
-            gravity = Gravity.TOP or Gravity.START
-            x = 100
-            y = 200 
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            x = 0
+            y = 100 
         }
 
         val subText = floatingView!!.findViewById<TextView>(R.id.subtitle_text)
         val controls = floatingView!!.findViewById<View>(R.id.controls_layout)
 
-        // --- ڈریگنگ اور ٹیپ لاجک ---
+        // ڈریگنگ اور ٹیپ ٹو شو کنٹرولز
         subText.setOnTouchListener(object : View.OnTouchListener {
             private var initialX = 0
             private var initialY = 0
@@ -91,7 +90,7 @@ class SubtitleService : Service() {
                         return true
                     }
                     MotionEvent.ACTION_UP -> {
-                        if (!isMoved) { // اگر صرف ٹیپ کیا گیا ہے
+                        if (!isMoved) {
                             controlsVisible = !controlsVisible
                             controls.visibility = if (controlsVisible) View.VISIBLE else View.GONE
                         }
@@ -102,7 +101,7 @@ class SubtitleService : Service() {
             }
         })
 
-        // --- بٹنوں کے فنکشنز ---
+        // بٹن کنٹرولز
         floatingView?.apply {
             findViewById<ImageButton>(R.id.btn_play_pause).setOnClickListener { togglePlay(it as ImageButton) }
             findViewById<ImageButton>(R.id.btn_close).setOnClickListener { stopSelf() }
@@ -116,13 +115,34 @@ class SubtitleService : Service() {
                 startActivity(intent)
             }
 
-            // لونگ پریس فارورڈ/بیک ورڈ
             setupSeek(findViewById(R.id.btn_forward), 1)
             setupSeek(findViewById(R.id.btn_backward), -1)
         }
 
         windowManager.addView(floatingView, params)
         updateUI()
+        startUpdating() // ٹائمر کو ہر وقت ایکٹیو رکھنا
+    }
+
+    private fun startUpdating() {
+        handler.post(object : Runnable {
+            override fun run() {
+                if (isPlaying && !isSeeking) {
+                    val elapsed = System.currentTimeMillis() - startTime
+                    elapsedAtPause = elapsed
+                    updateTimerDisplay()
+
+                    // لسٹ سے صحیح سب ٹائٹل نکالنا
+                    val currentSub = MainActivity.currentSubtitleList.find { 
+                        elapsed >= it.start && elapsed <= it.end 
+                    }
+                    
+                    floatingView?.findViewById<TextView>(R.id.subtitle_text)?.text = 
+                        currentSub?.text ?: ""
+                }
+                handler.postDelayed(this, 100)
+            }
+        })
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -147,20 +167,13 @@ class SubtitleService : Service() {
 
     private fun startSeeking(direction: Int) {
         val seekRunnable = object : Runnable {
-            var speed = 500L 
-            val startPress = System.currentTimeMillis()
-
+            var jump = 1000L // ہر بار 1 سیکنڈ آگے/پیچھے
             override fun run() {
                 if (!isSeeking) return
-                val pressTime = System.currentTimeMillis() - startPress
-                // جتنا لمبا پریس، اتنی زیادہ سپیڈ
-                speed = if (pressTime > 3000) 2000L else 500L
-                
-                elapsedAtPause += (speed * direction)
+                elapsedAtPause += (jump * direction)
                 if (elapsedAtPause < 0) elapsedAtPause = 0
-                
                 updateTimerDisplay()
-                seekHandler.postDelayed(this, 100)
+                seekHandler.postDelayed(this, 150)
             }
         }
         seekHandler.post(seekRunnable)
@@ -169,29 +182,17 @@ class SubtitleService : Service() {
     private fun togglePlay(btn: ImageButton) {
         isPlaying = !isPlaying
         if (isPlaying) {
+            // اگر لسٹ خالی ہے تو پہلے پچھلی فائل لوڈ کرنے کی کوشش کریں
+            if (MainActivity.currentSubtitleList.isEmpty()) {
+                val lastPath = getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE).getString("last_srt_path", null)
+                lastPath?.let { MainActivity.loadSubtitle(this, it) }
+            }
             startTime = System.currentTimeMillis() - elapsedAtPause
             btn.setImageResource(android.R.drawable.ic_media_pause)
-            runTimer()
         } else {
             elapsedAtPause = System.currentTimeMillis() - startTime
             btn.setImageResource(android.R.drawable.ic_media_play)
         }
-    }
-
-    private fun runTimer() {
-        handler.post(object : Runnable {
-            override fun run() {
-                if (!isPlaying || isSeeking) return
-                val elapsed = System.currentTimeMillis() - startTime
-                elapsedAtPause = elapsed
-                updateTimerDisplay()
-
-                val currentSub = MainActivity.currentSubtitleList.find { it.start <= elapsed && it.end >= elapsed }
-                floatingView?.findViewById<TextView>(R.id.subtitle_text)?.text = currentSub?.text ?: ""
-                
-                handler.postDelayed(this, 100)
-            }
-        })
     }
 
     private fun updateTimerDisplay() {
@@ -207,13 +208,12 @@ class SubtitleService : Service() {
         val txt = floatingView?.findViewById<TextView>(R.id.subtitle_text)
 
         txt?.textSize = prefs.getFloat("text_size", 20f)
-        val bgColor = if (isBgHidden) Color.TRANSPARENT else Color.BLACK
         val alpha = if (isBgHidden) 0 else (prefs.getFloat("opacity", 0.8f) * 255).toInt()
-        container?.setBackgroundColor(Color.argb(alpha, Color.red(bgColor), Color.green(bgColor), Color.blue(bgColor)))
+        container?.setBackgroundColor(Color.argb(alpha, 0, 0, 0))
         
-        // فونٹ لوڈ کرنا
         prefs.getString("last_font_path", null)?.let { path ->
-            if (File(path).exists()) txt?.typeface = Typeface.createFromFile(path)
+            val file = File(path)
+            if (file.exists()) txt?.typeface = Typeface.createFromFile(file)
         }
     }
 
@@ -221,9 +221,8 @@ class SubtitleService : Service() {
         val notification = NotificationCompat.Builder(this, "srt_service")
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle("Smart SRT Player")
-            .setContentText("Player is active")
+            .setContentText("Player is ready")
             .build()
-        
         startForeground(1, notification)
         updateUI()
         return START_STICKY
