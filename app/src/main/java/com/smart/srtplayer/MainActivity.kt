@@ -54,7 +54,6 @@ fun MainScreen() {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("srt_prefs", Context.MODE_PRIVATE) }
 
-    // سیٹنگز کو یاد رکھنے کے لیے Prefs سے ویلیوز اٹھائیں
     var subFontSize by remember { mutableStateOf(prefs.getFloat("font_size", 24f)) }
     var bgOpacity by remember { mutableStateOf(prefs.getFloat("bg_opacity", 0.7f)) }
     var textColor by remember { mutableStateOf(Color(prefs.getInt("text_color", Color.White.toArgb()))) }
@@ -90,46 +89,42 @@ fun MainScreen() {
         }
     }
 
-    Column(
-        modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
         Text("Smart SRT Player", style = MaterialTheme.typography.headlineMedium, color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(16.dp))
 
-        // پری ویو باکس (گول کنارے)
-        Box(
-            modifier = Modifier.fillMaxWidth().height(120.dp).background(Color.Gray.copy(0.1f), RoundedCornerShape(12.dp)).border(1.dp, Color.LightGray, RoundedCornerShape(12.dp)),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(
-                modifier = Modifier.wrapContentSize().background(bgColor.copy(alpha = bgOpacity), RoundedCornerShape(15.dp)).padding(12.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
+        // پری ویو باکس
+        Box(modifier = Modifier.fillMaxWidth().height(120.dp).background(Color.Gray.copy(0.1f), RoundedCornerShape(12.dp)).border(1.dp, Color.LightGray, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+            Column(modifier = Modifier.wrapContentSize().background(bgColor.copy(alpha = bgOpacity), RoundedCornerShape(15.dp)).padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("00:00:45", color = textColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 Text("اردو فونٹ پری ویو", color = textColor, fontSize = subFontSize.sp, textAlign = TextAlign.Center, fontFamily = FontFamily(customTypeface))
             }
         }
 
+        Spacer(Modifier.height(16.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { srtLauncher.launch(arrayOf("*/*")) }, modifier = Modifier.weight(1f)) { Text("Set SRT") }
             Button(onClick = { fontLauncher.launch(arrayOf("*/*")) }, modifier = Modifier.weight(1f)) { Text("Set Font") }
         }
 
+        Spacer(Modifier.height(16.dp))
         Text("Font Size: ${subFontSize.toInt()}sp")
-        Slider(value = subFontSize, valueRange = 16f..60f, onValueChange = { 
-            subFontSize = it
-            prefs.edit().putFloat("font_size", it).apply()
-        })
+        Slider(value = subFontSize, valueRange = 16f..60f, onValueChange = { subFontSize = it; prefs.edit().putFloat("font_size", it).apply() })
 
         Text("Opacity: ${(bgOpacity * 100).toInt()}%")
-        Slider(value = bgOpacity, valueRange = 0f..1f, onValueChange = { 
-            bgOpacity = it
-            prefs.edit().putFloat("bg_opacity", it).apply()
-        })
+        Slider(value = bgOpacity, valueRange = 0f..1f, onValueChange = { bgOpacity = it; prefs.edit().putFloat("bg_opacity", it).apply() })
 
         ColorRow("Text Color", textColor) { showTextColorPicker = true }
         ColorRow("BG Color", bgColor) { showBgColorPicker = true }
 
+        Spacer(Modifier.height(16.dp))
+        OutlinedButton(onClick = { 
+            prefs.edit().putLong("last_time", 0L).apply()
+            context.startService(Intent(context, SubtitleService::class.java).apply { action = "ACTION_RESET_TIMER" })
+            Toast.makeText(context, "Timer & Offset Reset", Toast.LENGTH_SHORT).show()
+        }, modifier = Modifier.fillMaxWidth()) { Text("Reset Timer & Offset") }
+
+        Spacer(Modifier.height(16.dp))
         Button(
             onClick = {
                 if (!Settings.canDrawOverlays(context)) {
@@ -155,24 +150,16 @@ fun MainScreen() {
 @Composable
 fun ColorRow(label: String, color: Color, onClick: () -> Unit) {
     Row(modifier = Modifier.fillMaxWidth().clickable { onClick() }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, modifier = Modifier.weight(1f))
-        Box(modifier = Modifier.size(36.dp).clip(CircleShape).background(color).border(2.dp, Color.LightGray, CircleShape))
+        Text(label, modifier = Modifier.weight(1f)); Box(modifier = Modifier.size(36.dp).clip(CircleShape).background(color).border(2.dp, Color.LightGray, CircleShape))
     }
 }
 
 @Composable
 fun SimpleColorPicker(onColorSelected: (Color) -> Unit, title: String) {
     val colors = listOf(Color.White, Color.Black, Color.Yellow, Color.Red, Color.Green, Color.Blue, Color.Cyan, Color.Magenta, Color.Gray)
-    AlertDialog(
-        onDismissRequest = { },
-        title = { Text(title) },
-        text = {
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-                colors.forEach { color ->
-                    Box(Modifier.size(45.dp).padding(4.dp).clip(CircleShape).background(color).border(1.dp, Color.Black, CircleShape).clickable { onColorSelected(color) })
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = { onColorSelected(Color.Transparent) }) { Text("Close") } }
-    )
+    AlertDialog(onDismissRequest = { }, title = { Text(title) }, text = {
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+            colors.forEach { color -> Box(Modifier.size(45.dp).padding(4.dp).clip(CircleShape).background(color).border(1.dp, Color.Black, CircleShape).clickable { onColorSelected(color) }) }
+        }
+    }, confirmButton = { TextButton(onClick = { onColorSelected(Color.Transparent) }) { Text("Close") } })
 }
