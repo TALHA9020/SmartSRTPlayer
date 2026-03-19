@@ -51,26 +51,26 @@ fun MainScreen() {
     var showTextColorPicker by remember { mutableStateOf(false) }
     var showBgColorPicker by remember { mutableStateOf(false) }
 
-    // محفوظ شدہ ڈیٹا لوڈ کریں
     LaunchedEffect(Unit) {
         prefs.getString("srt_uri", null)?.let { srtUri = Uri.parse(it) }
         prefs.getString("font_uri", null)?.let { fontUri = Uri.parse(it) }
     }
 
-    // SRT فائل چننے کا فنکشن (نئی فائل پر ٹائم ری سیٹ ہوگا)
+    // فنکشن: ٹائمر کو زیرو کرنے کے لیے سروس کو کمانڈ بھیجنا
+    fun resetServiceTimer() {
+        val intent = Intent(context, SubtitleService::class.java).apply {
+            action = "ACTION_RESET_TIMER"
+        }
+        context.startService(intent)
+    }
+
     val srtLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let {
-            try {
-                context.contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                srtUri = it
-                prefs.edit()
-                    .putString("srt_uri", it.toString())
-                    .putLong("last_time", 0L) // نئی فائل پر ٹائمر زیرو
-                    .apply()
-                Toast.makeText(context, "New SRT Loaded & Timer Reset", Toast.LENGTH_SHORT).show()
-            } catch (e: Exception) {
-                Toast.makeText(context, "Permission Error", Toast.LENGTH_SHORT).show()
-            }
+            context.contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            srtUri = it
+            prefs.edit().putString("srt_uri", it.toString()).putLong("last_time", 0L).apply()
+            resetServiceTimer() // سروس کو بتائیں کہ وقت زیرو کر دے
+            Toast.makeText(context, "New SRT & Timer Reset", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -86,9 +86,8 @@ fun MainScreen() {
         modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("Smart SRT Player Settings", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
+        Text("Smart SRT Player Settings", style = MaterialTheme.typography.headlineSmall, color = Color(0xFF1B5E20))
 
-        // Live Preview
         Box(
             modifier = Modifier.fillMaxWidth().height(100.dp).background(Color.Gray.copy(0.1f), RoundedCornerShape(8.dp)).border(1.dp, Color.LightGray, RoundedCornerShape(8.dp)),
             contentAlignment = Alignment.Center
@@ -111,8 +110,11 @@ fun MainScreen() {
             }
         }
 
-        // ٹائمر زیرو کرنے کا بٹن (مینولی ری سیٹ کے لیے)
-        OutlinedButton(onClick = { prefs.edit().putLong("last_time", 0L).apply() }, modifier = Modifier.fillMaxWidth()) {
+        OutlinedButton(onClick = { 
+            prefs.edit().putLong("last_time", 0L).apply()
+            resetServiceTimer() // سروس کو ری سیٹ کریں
+            Toast.makeText(context, "Timer Reset to 00:00", Toast.LENGTH_SHORT).show()
+        }, modifier = Modifier.fillMaxWidth()) {
             Text("Reset Timer to 00:00")
         }
 
@@ -125,19 +127,15 @@ fun MainScreen() {
         ColorSelectionRow("Text Color", textColor) { showTextColorPicker = true }
         ColorSelectionRow("BG Color", bgColor) { showBgColorPicker = true }
 
-        Spacer(modifier = Modifier.height(20.dp))
-
         Button(
             onClick = {
                 if (!Settings.canDrawOverlays(context)) {
-                    val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
-                    context.startActivity(intent)
+                    context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")))
                 } else if (srtUri == null) {
-                    Toast.makeText(context, "Please select an SRT file", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Select SRT first", Toast.LENGTH_SHORT).show()
                 } else {
                     val intent = Intent(context, SubtitleService::class.java).apply {
                         putExtra("fontSize", subFontSize)
-                        putExtra("timerSize", timerSize)
                         putExtra("bgColor", bgColor.toArgb())
                         putExtra("textColor", textColor.toArgb())
                         putExtra("opacity", bgOpacity)
