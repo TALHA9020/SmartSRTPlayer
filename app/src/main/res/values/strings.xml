@@ -1,5 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- یہ ایپ کا وہ نام ہے جو موبائل کی سکرین پر نظر آئے گا -->
     <string name="app_name">Smart SRT Player</string>
 </resources>
