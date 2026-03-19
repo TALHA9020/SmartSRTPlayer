@@ -47,8 +47,8 @@ fun MainScreen() {
     var showTextColorPicker by remember { mutableStateOf(false) }
     var showBgColorPicker by remember { mutableStateOf(false) }
 
-    val srtPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { srtUri = it }
-    val fontPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { fontUri = it }
+    val srtLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { srtUri = it }
+    val fontLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { fontUri = it }
 
     Column(
         modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
@@ -56,10 +56,10 @@ fun MainScreen() {
     ) {
         Text("Smart SRT Player Settings", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
 
-        // Preview Box
+        // Live Preview
         Text("Preview:", fontWeight = FontWeight.Bold)
         Box(
-            modifier = Modifier.fillMaxWidth().height(120.dp).background(Color.Gray.copy(0.1f), RoundedCornerShape(8.dp)).border(1.dp, Color.LightGray, RoundedCornerShape(8.dp)),
+            modifier = Modifier.fillMaxWidth().height(100.dp).background(Color.Gray.copy(0.1f), RoundedCornerShape(8.dp)).border(1.dp, Color.LightGray, RoundedCornerShape(8.dp)),
             contentAlignment = Alignment.Center
         ) {
             Column(
@@ -72,11 +72,11 @@ fun MainScreen() {
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { srtPicker.launch(arrayOf("*/*")) }, modifier = Modifier.weight(1f)) { 
-                Text(if (srtUri == null) "Add SRT" else "SRT Added ✅") 
+            Button(onClick = { srtLauncher.launch(arrayOf("*/*")) }, modifier = Modifier.weight(1f)) {
+                Text(if (srtUri == null) "Add SRT" else "SRT Added ✅")
             }
-            Button(onClick = { fontPicker.launch(arrayOf("*/*")) }, modifier = Modifier.weight(1f)) { 
-                Text(if (fontUri == null) "Add TTF" else "Font Added ✅") 
+            Button(onClick = { fontLauncher.launch(arrayOf("*/*")) }, modifier = Modifier.weight(1f)) {
+                Text(if (fontUri == null) "Add Font" else "Font Added ✅")
             }
         }
 
@@ -89,17 +89,18 @@ fun MainScreen() {
         Text("Background Opacity: ${(bgOpacity * 100).toInt()}%")
         Slider(value = bgOpacity, valueRange = 0f..1f, onValueChange = { bgOpacity = it })
 
-        ColorRow("Text Color", textColor) { showTextColorPicker = true }
-        ColorRow("BG Color", bgColor) { showBgColorPicker = true }
+        ColorSelectionRow("Text Color", textColor) { showTextColorPicker = true }
+        ColorSelectionRow("BG Color", bgColor) { showBgColorPicker = true }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
         Button(
             onClick = {
                 if (!Settings.canDrawOverlays(context)) {
-                    context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")))
+                    val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
+                    context.startActivity(intent)
                 } else if (srtUri == null) {
-                    Toast.makeText(context, "Please select SRT file first", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Please select an SRT file first", Toast.LENGTH_SHORT).show()
                 } else {
                     val intent = Intent(context, SubtitleService::class.java).apply {
                         putExtra("fontSize", subFontSize)
@@ -115,35 +116,41 @@ fun MainScreen() {
             },
             modifier = Modifier.fillMaxWidth().height(56.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1B5E20))
-        ) { Text("START SUBTITLE WINDOW", fontWeight = FontWeight.Bold) }
+        ) {
+            Text("START SUBTITLE PLAYER", fontWeight = FontWeight.Bold)
+        }
     }
 
-    if (showTextColorPicker) ColorPickerDialog({ textColor = it; showTextColorPicker = false }, "Text Color")
-    if (showBgColorPicker) ColorPickerDialog({ bgColor = it; showBgColorPicker = false }, "BG Color")
+    if (showTextColorPicker) ColorPickerDialog({ textColor = it; showTextColorPicker = false }, "Select Text Color")
+    if (showBgColorPicker) ColorPickerDialog({ bgColor = it; showBgColorPicker = false }, "Select Background Color")
 }
 
 @Composable
-fun ColorRow(label: String, color: Color, onClick: () -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
+fun ColorSelectionRow(label: String, color: Color, onClick: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { onClick() }) {
         Text(label, modifier = Modifier.weight(1f))
-        Box(modifier = Modifier.size(36.dp).clip(CircleShape).background(color).border(1.dp, Color.Gray, CircleShape).clickable { onClick() })
+        Box(modifier = Modifier.size(32.dp).clip(CircleShape).background(color).border(1.dp, Color.Gray, CircleShape))
     }
 }
 
 @Composable
 fun ColorPickerDialog(onColorSelected: (Color) -> Unit, title: String) {
-    val colors = listOf(Color.White, Color.Black, Color.Yellow, Color.Red, Color.Green, Color.Blue, Color.Cyan, Color.Gray)
+    val colors = listOf(Color.White, Color.Black, Color.Yellow, Color.Red, Color.Green, Color.Blue, Color.Cyan, Color.Magenta)
     AlertDialog(
-        onDismissRequest = {},
+        onDismissRequest = { },
         title = { Text(title) },
         text = {
             Column {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    colors.take(4).forEach { Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(it).clickable { onColorSelected(it) }) }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    colors.take(4).forEach { color ->
+                        Box(Modifier.size(40.dp).clip(CircleShape).background(color).border(1.dp, Color.LightGray, CircleShape).clickable { onColorSelected(color) })
+                    }
                 }
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    colors.drop(4).forEach { Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(it).clickable { onColorSelected(it) }) }
+                Spacer(Modifier.height(10.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    colors.drop(4).forEach { color ->
+                        Box(Modifier.size(40.dp).clip(CircleShape).background(color).border(1.dp, Color.LightGray, CircleShape).clickable { onColorSelected(color) })
+                    }
                 }
             }
         },
