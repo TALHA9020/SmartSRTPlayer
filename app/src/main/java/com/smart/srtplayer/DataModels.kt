@@ -1,18 +1,20 @@
 package com.smart.srtplayer
 
+import android.net.Uri
+import java.io.Serializable
+
 data class SubtitleItem(
-    val index: Int,
-    val startTime: Long, // ملی سیکنڈز میں
+    val startTime: Long,
     val endTime: Long,
     val text: String
-)
+) : Serializable
 
 data class PlayerSettings(
-    val fontSize: Float = 24f,
-    val timerSize: Float = 16f,
-    val bgColor: Int = -0x1000000, // Black
-    val textColor: Int = -0x1,      // White
-    val opacity: Float = 0.7f,
-    val srtUri: String? = null,
-    val fontUri: String? = null
-)
+    val fontSize: Float,
+    val timerSize: Float,
+    val bgColor: Int,
+    val textColor: Int,
+    val opacity: Float,
+    val srtUri: String?,
+    val fontUri: String?
+) : Serializable
