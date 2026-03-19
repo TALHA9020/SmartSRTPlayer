@@ -60,7 +60,6 @@ class SubtitleService : Service() {
         val subText = floatingView!!.findViewById<TextView>(R.id.subtitle_text)
         val controls = floatingView!!.findViewById<View>(R.id.controls_layout)
 
-        // ڈریگنگ اور ٹیپ ٹو شو کنٹرولز
         subText.setOnTouchListener(object : View.OnTouchListener {
             private var initialX = 0
             private var initialY = 0
@@ -101,7 +100,6 @@ class SubtitleService : Service() {
             }
         })
 
-        // بٹن کنٹرولز
         floatingView?.apply {
             findViewById<ImageButton>(R.id.btn_play_pause).setOnClickListener { togglePlay(it as ImageButton) }
             findViewById<ImageButton>(R.id.btn_close).setOnClickListener { stopSelf() }
@@ -115,48 +113,29 @@ class SubtitleService : Service() {
                 startActivity(intent)
             }
 
-            setupSeek(findViewById(R.id.btn_forward), 1)
-            setupSeek(findViewById(R.id.btn_backward), -1)
+            setupVariableSeek(findViewById(R.id.btn_forward), 1)
+            setupVariableSeek(findViewById(R.id.btn_backward), -1)
         }
 
         windowManager.addView(floatingView, params)
         updateUI()
-        startUpdating() // ٹائمر کو ہر وقت ایکٹیو رکھنا
+        startUpdatingLoop()
     }
 
-    private fun startUpdating() {
-        handler.post(object : Runnable {
-            override fun run() {
-                if (isPlaying && !isSeeking) {
-                    val elapsed = System.currentTimeMillis() - startTime
-                    elapsedAtPause = elapsed
-                    updateTimerDisplay()
-
-                    // لسٹ سے صحیح سب ٹائٹل نکالنا
-                    val currentSub = MainActivity.currentSubtitleList.find { 
-                        elapsed >= it.start && elapsed <= it.end 
-                    }
-                    
-                    floatingView?.findViewById<TextView>(R.id.subtitle_text)?.text = 
-                        currentSub?.text ?: ""
-                }
-                handler.postDelayed(this, 100)
-            }
-        })
-    }
-
+    // سمارٹ فارورڈ/بیک ورڈ لاجک (جتنا لمبا پریس، اتنی تیز رفتار)
     @SuppressLint("ClickableViewAccessibility")
-    private fun setupSeek(btn: ImageButton, direction: Int) {
+    private fun setupVariableSeek(btn: ImageButton, direction: Int) {
         btn.setOnTouchListener { _, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     isSeeking = true
-                    startSeeking(direction)
+                    startSeekingTask(direction)
                     true
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     isSeeking = false
                     seekHandler.removeCallbacksAndMessages(null)
+                    // پلے بیک دوبارہ وہیں سے شروع کریں جہاں پریس چھوڑا گیا
                     if (isPlaying) startTime = System.currentTimeMillis() - elapsedAtPause
                     true
                 }
@@ -165,27 +144,59 @@ class SubtitleService : Service() {
         }
     }
 
-    private fun startSeeking(direction: Int) {
+    private fun startSeekingTask(direction: Int) {
+        val startTimePress = System.currentTimeMillis()
+        
         val seekRunnable = object : Runnable {
-            var jump = 1000L // ہر بار 1 سیکنڈ آگے/پیچھے
             override fun run() {
                 if (!isSeeking) return
-                elapsedAtPause += (jump * direction)
+                
+                val pressDuration = System.currentTimeMillis() - startTimePress
+                
+                // رفتار کا فارمولا: ہر 2 سیکنڈ پریس کے بعد رفتار دوگنی ہو جائے گی
+                val multiplier = when {
+                    pressDuration > 6000 -> 5000L // 6 سیکنڈ بعد بہت تیز (5 سیکنڈ فی کلک)
+                    pressDuration > 4000 -> 2000L // 4 سیکنڈ بعد تیز
+                    pressDuration > 2000 -> 1000L // 2 سیکنڈ بعد درمیانی
+                    else -> 300L // شروع میں آہستہ
+                }
+
+                elapsedAtPause += (multiplier * direction)
                 if (elapsedAtPause < 0) elapsedAtPause = 0
+                
                 updateTimerDisplay()
-                seekHandler.postDelayed(this, 150)
+                // کلک کا وقفہ بھی کم ہوتا جائے گا (تیزی محسوس ہوگی)
+                val interval = if (pressDuration > 3000) 50L else 100L
+                seekHandler.postDelayed(this, interval)
             }
         }
         seekHandler.post(seekRunnable)
     }
 
+    private fun startUpdatingLoop() {
+        handler.post(object : Runnable {
+            override fun run() {
+                if (isPlaying && !isSeeking) {
+                    val elapsed = System.currentTimeMillis() - startTime
+                    elapsedAtPause = elapsed
+                    updateTimerDisplay()
+
+                    val currentSub = MainActivity.currentSubtitleList.find { 
+                        elapsed >= it.start && elapsed <= it.end 
+                    }
+                    floatingView?.findViewById<TextView>(R.id.subtitle_text)?.text = currentSub?.text ?: ""
+                }
+                handler.postDelayed(this, 100)
+            }
+        })
+    }
+
     private fun togglePlay(btn: ImageButton) {
         isPlaying = !isPlaying
         if (isPlaying) {
-            // اگر لسٹ خالی ہے تو پہلے پچھلی فائل لوڈ کرنے کی کوشش کریں
             if (MainActivity.currentSubtitleList.isEmpty()) {
-                val lastPath = getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE).getString("last_srt_path", null)
-                lastPath?.let { MainActivity.loadSubtitle(this, it) }
+                val prefs = getSharedPreferences(MainActivity.PREFS_NAME, MODE_PRIVATE)
+                prefs.getString("last_srt_path", null)?.let { MainActivity.loadSubtitle(this, it) }
             }
             startTime = System.currentTimeMillis() - elapsedAtPause
             btn.setImageResource(android.R.drawable.ic_media_pause)
@@ -212,8 +223,7 @@ class SubtitleService : Service() {
         container?.setBackgroundColor(Color.argb(alpha, 0, 0, 0))
         
         prefs.getString("last_font_path", null)?.let { path ->
-            val file = File(path)
-            if (file.exists()) txt?.typeface = Typeface.createFromFile(file)
+            if (File(path).exists()) txt?.typeface = Typeface.createFromFile(path)
         }
     }
 
@@ -221,10 +231,9 @@ class SubtitleService : Service() {
         val notification = NotificationCompat.Builder(this, "srt_service")
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle("Smart SRT Player")
-            .setContentText("Player is ready")
+            .setContentText("Ready to play")
             .build()
         startForeground(1, notification)
-        updateUI()
         return START_STICKY
     }
 
