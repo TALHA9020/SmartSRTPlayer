@@ -28,8 +28,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.io.BufferedReader
 import java.io.File
 import java.io.FileOutputStream
+import java.io.InputStreamReader
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -37,6 +39,8 @@ class MainActivity : ComponentActivity() {
         setContent { MaterialTheme { MainScreen() } }
     }
 }
+
+data class SubtitleItem(val startTime: Long, val endTime: Long, val text: String)
 
 fun loadPreviewTypeface(context: Context, uri: Uri?): Typeface {
     if (uri == null) return Typeface.DEFAULT
@@ -61,13 +65,40 @@ fun MainScreen() {
     
     var srtUri by remember { mutableStateOf<Uri?>(null) }
     var fontUri by remember { mutableStateOf<Uri?>(null) }
+    
+    // سلائیڈر کے لیے متغیرات
+    var totalDurationMs by remember { mutableStateOf(3600000L) } // ڈیفالٹ 1 گھنٹہ
+    var currentSeekPos by remember { mutableStateOf(0f) }
 
     var showTextColorPicker by remember { mutableStateOf(false) }
     var showBgColorPicker by remember { mutableStateOf(false) }
 
+    // فائل سے کل وقت (Duration) نکالنے کا فنکشن
+    fun calculateTotalDuration(uri: Uri) {
+        try {
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                val reader = BufferedReader(InputStreamReader(stream))
+                var lastTime = 3600000L
+                reader.forEachLine { line ->
+                    if (line.contains(" --> ")) {
+                        val timeStr = line.split(" --> ")[1].trim()
+                        val parts = timeStr.replace(",", ".").split(":")
+                        lastTime = (parts[0].toLong() * 3600000) + (parts[1].toLong() * 60000) + (parts[2].toDouble() * 1000).toLong()
+                    }
+                }
+                totalDurationMs = lastTime
+            }
+        } catch (e: Exception) { totalDurationMs = 7200000L }
+    }
+
     LaunchedEffect(Unit) {
-        prefs.getString("srt_uri", null)?.let { srtUri = Uri.parse(it) }
+        prefs.getString("srt_uri", null)?.let { 
+            val uri = Uri.parse(it)
+            srtUri = uri
+            calculateTotalDuration(uri)
+        }
         prefs.getString("font_uri", null)?.let { fontUri = Uri.parse(it) }
+        currentSeekPos = prefs.getLong("last_time", 0L).toFloat()
     }
 
     val customTypeface = remember(fontUri) { loadPreviewTypeface(context, fontUri) }
@@ -76,7 +107,9 @@ fun MainScreen() {
         uri?.let {
             context.contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             srtUri = it
+            calculateTotalDuration(it)
             prefs.edit().putString("srt_uri", it.toString()).putLong("last_time", 0L).apply()
+            currentSeekPos = 0f
             context.startService(Intent(context, SubtitleService::class.java).apply { action = "ACTION_RESET_TIMER" })
         }
     }
@@ -96,12 +129,31 @@ fun MainScreen() {
         // پری ویو باکس
         Box(modifier = Modifier.fillMaxWidth().height(120.dp).background(Color.Gray.copy(0.1f), RoundedCornerShape(12.dp)).border(1.dp, Color.LightGray, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
             Column(modifier = Modifier.wrapContentSize().background(bgColor.copy(alpha = bgOpacity), RoundedCornerShape(15.dp)).padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("00:00:45", color = textColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text(formatTime(currentSeekPos.toLong()), color = textColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 Text("اردو فونٹ پری ویو", color = textColor, fontSize = subFontSize.sp, textAlign = TextAlign.Center, fontFamily = FontFamily(customTypeface))
             }
         }
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(20.dp))
+
+        // --- ٹائم سلائیڈر سیکشن ---
+        Text("Jump to Time: ${formatTime(currentSeekPos.toLong())}", fontWeight = FontWeight.Bold, color = Color.DarkGray)
+        Slider(
+            value = currentSeekPos,
+            valueRange = 0f..totalDurationMs.toFloat(),
+            onValueChange = { 
+                currentSeekPos = it
+                // سروس کو ریئل ٹائم اپ ڈیٹ بھیجیں
+                context.startService(Intent(context, SubtitleService::class.java).apply {
+                    action = "ACTION_SEEK_TO"
+                    putExtra("seek_pos", it.toLong())
+                })
+            },
+            onValueChangeFinished = {
+                prefs.edit().putLong("last_time", currentSeekPos.toLong()).apply()
+            }
+        )
+
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { srtLauncher.launch(arrayOf("*/*")) }, modifier = Modifier.weight(1f)) { Text("Set SRT") }
             Button(onClick = { fontLauncher.launch(arrayOf("*/*")) }, modifier = Modifier.weight(1f)) { Text("Set Font") }
@@ -119,6 +171,7 @@ fun MainScreen() {
 
         Spacer(Modifier.height(16.dp))
         OutlinedButton(onClick = { 
+            currentSeekPos = 0f
             prefs.edit().putLong("last_time", 0L).apply()
             context.startService(Intent(context, SubtitleService::class.java).apply { action = "ACTION_RESET_TIMER" })
             Toast.makeText(context, "Timer & Offset Reset", Toast.LENGTH_SHORT).show()
@@ -145,6 +198,14 @@ fun MainScreen() {
 
     if (showTextColorPicker) SimpleColorPicker({ textColor = it; prefs.edit().putInt("text_color", it.toArgb()).apply(); showTextColorPicker = false }, "Text Color")
     if (showBgColorPicker) SimpleColorPicker({ bgColor = it; prefs.edit().putInt("bg_color", it.toArgb()).apply(); showBgColorPicker = false }, "BG Color")
+}
+
+// ٹائم فارمیٹ کرنے کا فنکشن
+fun formatTime(ms: Long): String {
+    val s = (ms / 1000) % 60
+    val m = (ms / 60000) % 60
+    val h = (ms / 3600000)
+    return String.format("%02d:%02d:%02d", h, m, s)
 }
 
 @Composable
