@@ -5,6 +5,7 @@ import android.content.Intent
 import android.graphics.Typeface
 import android.net.Uri
 import android.os.Bundle
+import android.provider.OpenableColumns
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -26,6 +27,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.io.BufferedReader
@@ -40,7 +42,18 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// یہاں سے SubtitleItem والی لائن ہٹا دی گئی ہے کیونکہ وہ DataModels.kt میں موجود ہے
+// URI سے فائل کا نام نکالنے والا فنکشن
+fun getFileName(context: Context, uri: Uri?): String {
+    if (uri == null) return "No file selected"
+    var name = "Unknown file"
+    context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+        val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+        if (cursor.moveToFirst()) {
+            name = cursor.getString(nameIndex)
+        }
+    }
+    return name
+}
 
 fun loadPreviewTypeface(context: Context, uri: Uri?): Typeface {
     if (uri == null) return Typeface.DEFAULT
@@ -66,14 +79,12 @@ fun MainScreen() {
     var srtUri by remember { mutableStateOf<Uri?>(null) }
     var fontUri by remember { mutableStateOf<Uri?>(null) }
     
-    // سلائیڈر کے لیے متغیرات
-    var totalDurationMs by remember { mutableStateOf(3600000L) } // ڈیفالٹ 1 گھنٹہ
+    var totalDurationMs by remember { mutableStateOf(3600000L) }
     var currentSeekPos by remember { mutableStateOf(0f) }
 
     var showTextColorPicker by remember { mutableStateOf(false) }
     var showBgColorPicker by remember { mutableStateOf(false) }
 
-    // فائل سے کل وقت (Duration) نکالنے کا فنکشن
     fun calculateTotalDuration(uri: Uri) {
         try {
             context.contentResolver.openInputStream(uri)?.use { stream ->
@@ -126,7 +137,6 @@ fun MainScreen() {
         Text("Smart SRT Player", style = MaterialTheme.typography.headlineMedium, color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(16.dp))
 
-        // پری ویو باکس
         Box(modifier = Modifier.fillMaxWidth().height(120.dp).background(Color.Gray.copy(0.1f), RoundedCornerShape(12.dp)).border(1.dp, Color.LightGray, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
             Column(modifier = Modifier.wrapContentSize().background(bgColor.copy(alpha = bgOpacity), RoundedCornerShape(15.dp)).padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(formatTime(currentSeekPos.toLong()), color = textColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
@@ -136,14 +146,12 @@ fun MainScreen() {
 
         Spacer(Modifier.height(20.dp))
 
-        // --- ٹائم سلائیڈر سیکشن ---
         Text("Jump to Time: ${formatTime(currentSeekPos.toLong())}", fontWeight = FontWeight.Bold, color = Color.DarkGray)
         Slider(
             value = currentSeekPos,
             valueRange = 0f..totalDurationMs.toFloat(),
             onValueChange = { 
                 currentSeekPos = it
-                // سروس کو ریئل ٹائم اپ ڈیٹ بھیجیں
                 context.startService(Intent(context, SubtitleService::class.java).apply {
                     action = "ACTION_SEEK_TO"
                     putExtra("seek_pos", it.toLong())
@@ -154,9 +162,16 @@ fun MainScreen() {
             }
         )
 
+        // --- فائل سلیکشن بٹنز اور اسٹیٹس ---
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { srtLauncher.launch(arrayOf("*/*")) }, modifier = Modifier.weight(1f)) { Text("Set SRT") }
-            Button(onClick = { fontLauncher.launch(arrayOf("*/*")) }, modifier = Modifier.weight(1f)) { Text("Set Font") }
+            Column(modifier = Modifier.weight(1f)) {
+                Button(onClick = { srtLauncher.launch(arrayOf("*/*")) }, modifier = Modifier.fillMaxWidth()) { Text("Set SRT") }
+                FileStatus(fileName = getFileName(context, srtUri), isSelected = srtUri != null)
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Button(onClick = { fontLauncher.launch(arrayOf("*/*")) }, modifier = Modifier.fillMaxWidth()) { Text("Set Font") }
+                FileStatus(fileName = getFileName(context, fontUri), isSelected = fontUri != null)
+            }
         }
 
         Spacer(Modifier.height(16.dp))
@@ -200,7 +215,29 @@ fun MainScreen() {
     if (showBgColorPicker) SimpleColorPicker({ bgColor = it; prefs.edit().putInt("bg_color", it.toArgb()).apply(); showBgColorPicker = false }, "BG Color")
 }
 
-// ٹائم فارمیٹ کرنے کا فنکشن
+// فائل کا نام اور ٹک دکھانے والا چھوٹا ڈیزائن
+@Composable
+fun FileStatus(fileName: String, isSelected: Boolean) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(top = 4.dp, start = 4.dp)
+    ) {
+        Text(
+            text = if (isSelected) "✔ " else "○ ",
+            color = if (isSelected) Color(0xFF2E7D32) else Color.Gray,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            text = fileName,
+            fontSize = 11.sp,
+            color = if (isSelected) Color.DarkGray else Color.Gray,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
 fun formatTime(ms: Long): String {
     val s = (ms / 1000) % 60
     val m = (ms / 60000) % 60
