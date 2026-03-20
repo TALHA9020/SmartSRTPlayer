@@ -40,7 +40,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-data class SubtitleItem(val startTime: Long, val endTime: Long, val text: String)
+// یہاں سے SubtitleItem والی لائن ہٹا دی گئی ہے کیونکہ وہ DataModels.kt میں موجود ہے
 
 fun loadPreviewTypeface(context: Context, uri: Uri?): Typeface {
     if (uri == null) return Typeface.DEFAULT
