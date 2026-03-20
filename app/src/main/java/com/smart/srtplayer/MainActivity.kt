@@ -12,7 +12,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -42,19 +45,22 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// URI سے فائل کا نام نکالنے والا فنکشن
+// Helper: URI سے فائل کا نام نکالنا
 fun getFileName(context: Context, uri: Uri?): String {
     if (uri == null) return "No file selected"
     var name = "Unknown file"
-    context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-        val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-        if (cursor.moveToFirst()) {
-            name = cursor.getString(nameIndex)
+    try {
+        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (cursor.moveToFirst()) {
+                name = cursor.getString(nameIndex)
+            }
         }
-    }
+    } catch (e: Exception) { e.printStackTrace() }
     return name
 }
 
+// Helper: پری ویو کے لیے فونٹ لوڈ کرنا
 fun loadPreviewTypeface(context: Context, uri: Uri?): Typeface {
     if (uri == null) return Typeface.DEFAULT
     return try {
@@ -71,6 +77,7 @@ fun MainScreen() {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("srt_prefs", Context.MODE_PRIVATE) }
 
+    // سیٹنگز سٹیٹس
     var subFontSize by remember { mutableStateOf(prefs.getFloat("font_size", 24f)) }
     var bgOpacity by remember { mutableStateOf(prefs.getFloat("bg_opacity", 0.7f)) }
     var textColor by remember { mutableStateOf(Color(prefs.getInt("text_color", Color.White.toArgb()))) }
@@ -82,9 +89,18 @@ fun MainScreen() {
     var totalDurationMs by remember { mutableStateOf(3600000L) }
     var currentSeekPos by remember { mutableStateOf(0f) }
 
+    // کلر پیکر سٹیٹس
     var showTextColorPicker by remember { mutableStateOf(false) }
     var showBgColorPicker by remember { mutableStateOf(false) }
 
+    // --- نیا: پری ویو بیک گراؤنڈ سٹیٹ ---
+    val previewBackgrounds = listOf(
+        Color.White, Color.Black, Color(0xFF1976D2), Color(0xFFFDD835), Color(0xFFE0E0E0), Color(0xFFEF5350)
+    )
+    var currentPreviewBgIndex by remember { mutableStateOf(0) }
+    val animatedPreviewBg by animateColorAsState(targetValue = previewBackgrounds[currentPreviewBgIndex], animationSpec = tween(400))
+
+    // ڈیوریشن کیلکولیٹ کرنا
     fun calculateTotalDuration(uri: Uri) {
         try {
             context.contentResolver.openInputStream(uri)?.use { stream ->
@@ -102,6 +118,7 @@ fun MainScreen() {
         } catch (e: Exception) { totalDurationMs = 7200000L }
     }
 
+    // لوڈ کنٹرولز
     LaunchedEffect(Unit) {
         prefs.getString("srt_uri", null)?.let { 
             val uri = Uri.parse(it)
@@ -114,6 +131,7 @@ fun MainScreen() {
 
     val customTypeface = remember(fontUri) { loadPreviewTypeface(context, fontUri) }
 
+    // فائل لانچرز
     val srtLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let {
             context.contentResolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -137,15 +155,45 @@ fun MainScreen() {
         Text("Smart SRT Player", style = MaterialTheme.typography.headlineMedium, color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(16.dp))
 
-        Box(modifier = Modifier.fillMaxWidth().height(120.dp).background(Color.Gray.copy(0.1f), RoundedCornerShape(12.dp)).border(1.dp, Color.LightGray, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
-            Column(modifier = Modifier.wrapContentSize().background(bgColor.copy(alpha = bgOpacity), RoundedCornerShape(15.dp)).padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(formatTime(currentSeekPos.toLong()), color = textColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                Text("اردو فونٹ پری ویو", color = textColor, fontSize = subFontSize.sp, textAlign = TextAlign.Center, fontFamily = FontFamily(customTypeface))
+        // --- اپ ڈیٹڈ: پری ویو باکس (رینڈم بیک گراؤنڈ کلک کے ساتھ) ---
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(120.dp)
+                    .background(animatedPreviewBg, RoundedCornerShape(12.dp))
+                    .border(2.dp, Color.LightGray.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                    // کلک لاجک
+                    .clickable(
+                        indication = null, interactionSource = remember { MutableInteractionSource() }
+                    ) { currentPreviewBgIndex = (currentPreviewBgIndex + 1) % previewBackgrounds.size },
+                contentAlignment = Alignment.Center
+            ) {
+                // فلوٹنگ ونڈو کی نقل
+                Column(
+                    modifier = Modifier
+                        .wrapContentSize()
+                        .background(bgColor.copy(alpha = bgOpacity), RoundedCornerShape(12.dp))
+                        .padding(8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(formatTime(currentSeekPos.toLong()), color = textColor.copy(alpha = 0.8f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = "اردو فونٹ پری ویو",
+                        color = textColor,
+                        fontSize = subFontSize.sp,
+                        textAlign = TextAlign.Center,
+                        fontFamily = FontFamily(customTypeface),
+                        lineHeight = (subFontSize * 1.2f).sp
+                    )
+                }
             }
+            Text("Tap window to change background", fontSize = 10.sp, color = Color.Gray, modifier = Modifier.padding(top = 4.dp))
         }
 
         Spacer(Modifier.height(20.dp))
 
+        // ٹائم سلائیڈر
         Text("Jump to Time: ${formatTime(currentSeekPos.toLong())}", fontWeight = FontWeight.Bold, color = Color.DarkGray)
         Slider(
             value = currentSeekPos,
@@ -162,7 +210,7 @@ fun MainScreen() {
             }
         )
 
-        // --- فائل سلیکشن بٹنز اور اسٹیٹس ---
+        // فائل سلیکشن بٹنز (ٹک مارک اور فائل نیم کے ساتھ)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Column(modifier = Modifier.weight(1f)) {
                 Button(onClick = { srtLauncher.launch(arrayOf("*/*")) }, modifier = Modifier.fillMaxWidth()) { Text("Set SRT") }
@@ -211,11 +259,12 @@ fun MainScreen() {
         ) { Text("LAUNCH PLAYER", fontWeight = FontWeight.Bold) }
     }
 
+    // کلر پیکرز
     if (showTextColorPicker) SimpleColorPicker({ textColor = it; prefs.edit().putInt("text_color", it.toArgb()).apply(); showTextColorPicker = false }, "Text Color")
     if (showBgColorPicker) SimpleColorPicker({ bgColor = it; prefs.edit().putInt("bg_color", it.toArgb()).apply(); showBgColorPicker = false }, "BG Color")
 }
 
-// فائل کا نام اور ٹک دکھانے والا چھوٹا ڈیزائن
+// Helper: فائل کا نام اور ٹک دکھانا
 @Composable
 fun FileStatus(fileName: String, isSelected: Boolean) {
     Row(
@@ -238,6 +287,7 @@ fun FileStatus(fileName: String, isSelected: Boolean) {
     }
 }
 
+// Helper: ٹائم فارمیٹ کرنا
 fun formatTime(ms: Long): String {
     val s = (ms / 1000) % 60
     val m = (ms / 60000) % 60
@@ -245,6 +295,7 @@ fun formatTime(ms: Long): String {
     return String.format("%02d:%02d:%02d", h, m, s)
 }
 
+// Helper: کلر رو ڈیزائن
 @Composable
 fun ColorRow(label: String, color: Color, onClick: () -> Unit) {
     Row(modifier = Modifier.fillMaxWidth().clickable { onClick() }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -252,6 +303,7 @@ fun ColorRow(label: String, color: Color, onClick: () -> Unit) {
     }
 }
 
+// Helper: کلر پیکر ڈائیلاگ
 @Composable
 fun SimpleColorPicker(onColorSelected: (Color) -> Unit, title: String) {
     val colors = listOf(Color.White, Color.Black, Color.Yellow, Color.Red, Color.Green, Color.Blue, Color.Cyan, Color.Magenta, Color.Gray)
