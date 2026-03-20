@@ -31,9 +31,8 @@ class SubtitleService : Service() {
     private var timeOffset: Long = 0
     private var subtitleList = mutableListOf<SubtitleItem>()
     
-    // لونگ پریس کے لیے متغیرات
     private var currentJump: Long = 1000L 
-    private val SEEK_INTERVAL = 100L // ہر 100ms بعد وقت بدلے گا
+    private val SEEK_INTERVAL = 100L 
 
     private var userBgColor: Int = Color.BLACK
     private var userOpacity: Float = 0.7f
@@ -50,16 +49,29 @@ class SubtitleService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == "ACTION_RESET_TIMER") {
-            currentTimeMs = 0; timeOffset = 0
-            updateUI(); return START_NOT_STICKY
+        // سلائیڈر یا ری سیٹ ایکشنز کو ہینڈل کرنا
+        when (intent?.action) {
+            "ACTION_RESET_TIMER" -> {
+                currentTimeMs = 0; timeOffset = 0
+                updateUI()
+                return START_NOT_STICKY
+            }
+            "ACTION_SEEK_TO" -> {
+                currentTimeMs = intent.getLongExtra("seek_pos", 0L)
+                updateUI()
+                return START_NOT_STICKY
+            }
         }
 
         val prefs = getSharedPreferences("srt_prefs", MODE_PRIVATE)
         val srtUriStr = intent?.getStringExtra("srtUri") ?: prefs.getString("srt_uri", null)
         val fontUriStr = intent?.getStringExtra("fontUri") ?: prefs.getString("font_uri", null)
         
-        currentTimeMs = prefs.getLong("last_time", 0L)
+        // اگر سروس پہلی بار یا نارمل طریقے سے کھلی ہے تو محفوظ وقت لوڈ کریں
+        if (intent?.action == null) {
+            currentTimeMs = prefs.getLong("last_time", 0L)
+        }
+        
         srtUriStr?.let { parseSrt(Uri.parse(it)) }
         setupFloatingWindow(intent, fontUriStr)
         return START_NOT_STICKY
@@ -68,10 +80,11 @@ class SubtitleService : Service() {
     @SuppressLint("ClickableViewAccessibility")
     private fun setupFloatingWindow(intent: Intent?, fontUriStr: String?) {
         if (floatingView != null) {
-            try { windowManager.removeView(floatingView) } catch (e: Exception) {}
+            updateViewParams(intent, fontUriStr)
+            return
         }
-        floatingView = LayoutInflater.from(this).inflate(R.layout.overlay_layout, null)
 
+        floatingView = LayoutInflater.from(this).inflate(R.layout.overlay_layout, null)
         val subText = floatingView!!.findViewById<TextView>(R.id.subtitle_text)
         val container = floatingView!!.findViewById<LinearLayout>(R.id.subtitle_container)
         val controls = floatingView!!.findViewById<LinearLayout>(R.id.controls_layout)
@@ -81,12 +94,7 @@ class SubtitleService : Service() {
         val forwardBtn = floatingView!!.findViewById<ImageButton>(R.id.btn_forward)
         val backwardBtn = floatingView!!.findViewById<ImageButton>(R.id.btn_backward)
         val closeBtn = floatingView!!.findViewById<ImageButton>(R.id.btn_close_service)
-        val offsetPlus = floatingView!!.findViewById<ImageButton>(R.id.btn_offset_plus)
-        val offsetMinus = floatingView!!.findViewById<ImageButton>(R.id.btn_offset_minus)
-        val offsetReset = floatingView!!.findViewById<ImageButton>(R.id.btn_offset_reset)
-        val hideBgBtn = floatingView!!.findViewById<ImageButton>(R.id.btn_hide_bg)
 
-        // فونٹ اور تھیم سیٹ اپ
         loadCustomFont(fontUriStr)?.let { subText.typeface = it }
         intent?.let {
             subText.textSize = it.getFloatExtra("fontSize", 24f)
@@ -103,7 +111,6 @@ class SubtitleService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply { gravity = Gravity.TOP; y = 300 }
 
-        // ڈریگنگ اور ٹیپ ٹو شو/ہائیڈ کنٹرولز
         container.setOnTouchListener(object : View.OnTouchListener {
             private var x = 0; private var y = 0; private var px = 0f; private var py = 0f
             override fun onTouch(v: View, e: MotionEvent): Boolean {
@@ -114,7 +121,7 @@ class SubtitleService : Service() {
                         windowManager.updateViewLayout(floatingView, params); return true
                     }
                     MotionEvent.ACTION_UP -> {
-                        if (Math.abs(e.rawX - px) < 10 && Math.abs(e.rawY - py) < 10) {
+                        if (Math.abs(e.rawX - px) < 10) {
                             isControlsVisible = !isControlsVisible
                             controls.visibility = if (isControlsVisible) View.VISIBLE else View.GONE
                             timerLayout.visibility = if (isControlsVisible) View.VISIBLE else View.GONE
@@ -126,90 +133,85 @@ class SubtitleService : Service() {
             }
         })
 
-        // --- درست لونگ پریس لاجک (فارورڈ/بیک ورڈ) ---
+        // لمیٹ لیس (Limitless) لانگ پریس لاجک
         fun createSeekRunnable(isForward: Boolean): Runnable = object : Runnable {
             override fun run() {
                 if (isForward) currentTimeMs += currentJump 
                 else currentTimeMs = maxOf(0, currentTimeMs - currentJump)
                 
-                // رفتار بڑھائیں (Max 10 seconds per tick)
-                if (currentJump < 10000L) currentJump = (currentJump * 1.15).toLong()
+                // رفتار اب بغیر کسی حد کے 20% بڑھتی رہے گی
+                currentJump = (currentJump * 1.20).toLong() 
                 
                 updateUI()
                 seekHandler.postDelayed(this, SEEK_INTERVAL)
             }
         }
 
-        val fwdRunnable = createSeekRunnable(true)
-        val bwdRunnable = createSeekRunnable(false)
+        val fwdRunnable = createSeekRunnable(true); val bwdRunnable = createSeekRunnable(false)
 
         forwardBtn.setOnTouchListener { _, event ->
-            when (event.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    currentJump = 1000L // ری سیٹ سپیڈ
-                    seekHandler.post(fwdRunnable)
-                    forwardBtn.isPressed = true
-                }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    seekHandler.removeCallbacks(fwdRunnable)
-                    forwardBtn.isPressed = false
-                }
+            if (event.action == MotionEvent.ACTION_DOWN) { 
+                currentJump = 1000L; seekHandler.post(fwdRunnable); forwardBtn.isPressed = true 
+            }
+            if (event.action == MotionEvent.ACTION_UP || event.action == MotionEvent.ACTION_CANCEL) {
+                seekHandler.removeCallbacks(fwdRunnable); forwardBtn.isPressed = false 
             }
             true
         }
 
         backwardBtn.setOnTouchListener { _, event ->
-            when (event.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    currentJump = 1000L
-                    seekHandler.post(bwdRunnable)
-                    backwardBtn.isPressed = true
-                }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    seekHandler.removeCallbacks(bwdRunnable)
-                    backwardBtn.isPressed = false
-                }
+            if (event.action == MotionEvent.ACTION_DOWN) { 
+                currentJump = 1000L; seekHandler.post(bwdRunnable); backwardBtn.isPressed = true 
+            }
+            if (event.action == MotionEvent.ACTION_UP || event.action == MotionEvent.ACTION_CANCEL) {
+                seekHandler.removeCallbacks(bwdRunnable); backwardBtn.isPressed = false 
             }
             true
         }
 
-        // دیگر بٹنز
         playBtn.setOnClickListener { 
             isPlaying = !isPlaying
             lastTickTime = SystemClock.elapsedRealtime()
             playBtn.setImageResource(if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play) 
         }
         
-        offsetPlus.setOnClickListener { timeOffset += 500; updateUI() }
-        offsetMinus.setOnClickListener { timeOffset -= 500; updateUI() }
-        offsetReset.setOnClickListener { timeOffset = 0; updateUI() }
-        hideBgBtn.setOnClickListener { isBgHidden = !isBgHidden; updateBackground(container) }
+        floatingView!!.findViewById<ImageButton>(R.id.btn_offset_plus).setOnClickListener { timeOffset += 500; updateUI() }
+        floatingView!!.findViewById<ImageButton>(R.id.btn_offset_minus).setOnClickListener { timeOffset -= 500; updateUI() }
+        floatingView!!.findViewById<ImageButton>(R.id.btn_offset_reset).setOnClickListener { timeOffset = 0; updateUI() }
+        floatingView!!.findViewById<ImageButton>(R.id.btn_hide_bg).setOnClickListener { isBgHidden = !isBgHidden; updateBackground(container) }
         closeBtn.setOnClickListener { stopSelf() }
 
         windowManager.addView(floatingView, params)
         startMainLoop()
     }
 
+    private fun updateViewParams(intent: Intent?, fontUriStr: String?) {
+        val subText = floatingView?.findViewById<TextView>(R.id.subtitle_text) ?: return
+        val container = floatingView?.findViewById<LinearLayout>(R.id.subtitle_container) ?: return
+        loadCustomFont(fontUriStr)?.let { subText.typeface = it }
+        intent?.let {
+            subText.textSize = it.getFloatExtra("fontSize", 24f)
+            subText.setTextColor(it.getIntExtra("textColor", Color.WHITE))
+            userBgColor = it.getIntExtra("bgColor", Color.BLACK)
+            userOpacity = it.getFloatExtra("opacity", 0.7f)
+            updateBackground(container)
+        }
+    }
+
     private fun updateBackground(view: View) {
         val shape = GradientDrawable()
-        shape.cornerRadius = 50f
-        if (isBgHidden) shape.setColor(Color.TRANSPARENT)
-        else {
-            val alpha = (userOpacity * 255).toInt()
-            shape.setColor(Color.argb(alpha, Color.red(userBgColor), Color.green(userBgColor), Color.blue(userBgColor)))
-        }
+        shape.cornerRadius = 40f
+        val alpha = if (isBgHidden) 0 else (userOpacity * 255).toInt()
+        shape.setColor(Color.argb(alpha, Color.red(userBgColor), Color.green(userBgColor), Color.blue(userBgColor)))
         view.background = shape
     }
 
     private fun startMainLoop() {
-        lastTickTime = SystemClock.elapsedRealtime()
         handler.post(object : Runnable {
             override fun run() {
                 if (isPlaying) {
                     val now = SystemClock.elapsedRealtime()
-                    currentTimeMs += (now - lastTickTime)
-                    lastTickTime = now
-                    updateUI()
+                    currentTimeMs += (now - lastTickTime); lastTickTime = now; updateUI()
                 } else { lastTickTime = SystemClock.elapsedRealtime() }
                 handler.postDelayed(this, 100)
             }
@@ -219,16 +221,14 @@ class SubtitleService : Service() {
     private fun updateUI() {
         val s = (currentTimeMs / 1000) % 60
         val m = (currentTimeMs / 60000) % 60
-        val h = (currentTimeMs / 3600000) % 24
+        val h = (currentTimeMs / 3600000)
         floatingView?.findViewById<TextView>(R.id.timer_display)?.text = String.format("%02d:%02d:%02d", h, m, s)
-        
-        val offsetText = floatingView?.findViewById<TextView>(R.id.offset_display)
+        val offsetDisplay = floatingView?.findViewById<TextView>(R.id.offset_display)
         if (timeOffset != 0L) {
-            val sign = if (timeOffset > 0) "+" else ""
-            offsetText?.text = "($sign${timeOffset / 1000.0}s)"
-            offsetText?.visibility = View.VISIBLE
-        } else { offsetText?.visibility = View.GONE }
-
+            val prefix = if (timeOffset > 0) "+" else ""
+            offsetDisplay?.text = "($prefix${timeOffset / 1000.0}s)"
+            offsetDisplay?.visibility = View.VISIBLE
+        } else { offsetDisplay?.visibility = View.GONE }
         val currentSub = subtitleList.find { (currentTimeMs + timeOffset) in it.startTime..it.endTime }
         floatingView?.findViewById<TextView>(R.id.subtitle_text)?.text = currentSub?.text ?: ""
     }
@@ -278,8 +278,7 @@ class SubtitleService : Service() {
 
     override fun onDestroy() {
         getSharedPreferences("srt_prefs", MODE_PRIVATE).edit().putLong("last_time", currentTimeMs).apply()
-        handler.removeCallbacksAndMessages(null)
-        seekHandler.removeCallbacksAndMessages(null)
+        handler.removeCallbacksAndMessages(null); seekHandler.removeCallbacksAndMessages(null)
         floatingView?.let { try { windowManager.removeView(it) } catch (e: Exception) {} }
         super.onDestroy()
     }
